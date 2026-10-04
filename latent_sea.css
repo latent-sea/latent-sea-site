@@ -36,6 +36,17 @@ html, body { margin: 0; height: 100%; background: #0b1820; color: #e7eef2; overf
 #app .Cog { position: fixed; z-index: 1; top: 0.75rem; left: 0.75rem; width: 44px; height: 44px; padding: 0; justify-content: center; }
 #app .Cog > .chime-column { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 #app .Cog::before { content: "\2699\FE0E"; font-size: 1.4rem; line-height: 1; }
+/* full screen, beside the cog: four corners drawn in its place */
+#app .Fill { position: fixed; z-index: 1; top: 0.75rem; left: calc(0.75rem + 52px); width: 44px; height: 44px; padding: 0; justify-content: center; }
+#app .Fill > .chime-column { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#app .Fill::before { content: ""; width: 18px; height: 18px;
+  background:
+    linear-gradient(currentColor, currentColor) top left / 7px 2px no-repeat, linear-gradient(currentColor, currentColor) top left / 2px 7px no-repeat,
+    linear-gradient(currentColor, currentColor) top right / 7px 2px no-repeat, linear-gradient(currentColor, currentColor) top right / 2px 7px no-repeat,
+    linear-gradient(currentColor, currentColor) bottom left / 7px 2px no-repeat, linear-gradient(currentColor, currentColor) bottom left / 2px 7px no-repeat,
+    linear-gradient(currentColor, currentColor) bottom right / 7px 2px no-repeat, linear-gradient(currentColor, currentColor) bottom right / 2px 7px no-repeat; }
+#app .Hint { gap: 0.5rem; padding: 0.75rem 1rem; border-radius: 0.75rem; background: rgba(127, 209, 232, 0.10); border: 1px solid rgba(127, 209, 232, 0.3); }
+#app .HintWords { color: #e7eef2; }
 #app .SettingsPanel { position: fixed; z-index: 2; top: 4rem; left: 1rem; width: min(20rem, calc(100% - 2rem)); display: flex; flex-direction: column; gap: 0.75rem;
   padding: 1rem; border-radius: 1rem; background: rgba(8, 20, 28, 0.92); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4); }
 #app .Setting { width: 100%; justify-content: space-between; }

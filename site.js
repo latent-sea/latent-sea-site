@@ -3,6 +3,8 @@
 // only lets them in and carries what the engine asks of it:
 //   - the door: enter as a guest, with Google, or with a code emailed to them;
 //   - the world, filling the window, with words over it when a scene shows some.
+// On a phone, a touch fills the screen where the browser allows it; an iPhone
+// is told to add it to the home screen, which opens it full screen.
 // Creatures and the seeker speak in subtitles, which the engine draws
 // (world/speech.js), one at a time (G1).
 // Nothing of the world is in this page: its scenes, regions and spirits come
@@ -10,9 +12,9 @@
 // the developer's machine instead (world/dev/serve.mjs).
 
 import * as THREE from "three";
-import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=d83d8c4ae7d6";
-import { World } from "./world/world.js?v=d83d8c4ae7d6";
-import { DevDoor, Door } from "./door.js?v=d83d8c4ae7d6";
+import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=16bf1c83d35f";
+import { World } from "./world/world.js?v=16bf1c83d35f";
+import { DevDoor, Door } from "./door.js?v=16bf1c83d35f";
 
 const WORLD = "latent_sea";
 
@@ -26,8 +28,33 @@ const LEAVES = "leaves";
 const OPENS_SETTINGS = "opens_settings";
 const CLOSES_SETTINGS = "closes_settings";
 const INVERTS_Y = "inverts_y";
+const FILLS_SCREEN = "fills_the_screen";
+const HIDES_HINT = "hides_the_hint";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const HINT_SEEN = "latent_sea.home_screen_hint";
+
+// Full screen: where the browser allows a page to fill the screen (Android,
+// computers), a touch fills it, until the seeker leaves it themselves; a
+// button beside the cog goes in and out. An iPhone allows it only to a page
+// opened from the home screen (manifest.json), so it is told how, once.
+const touchScreen = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+const canFill = () => typeof document !== "undefined" && document.fullscreenEnabled === true && !!document.documentElement.requestFullscreen;
+const filled = () => !!document.fullscreenElement;
+function fill() {
+  try { document.documentElement.requestFullscreen({ navigationUI: "hide" })?.catch?.(() => {}); } catch { /* not allowed now */ }
+}
+function unfill() {
+  try { document.exitFullscreen?.()?.catch?.(() => {}); } catch { /* already out */ }
+}
+/** An iPhone or iPad's browser, not opened from the home screen. */
+function iPhoneInBrowser() {
+  const apple = /iPhone|iPod|iPad/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const fromHome = navigator.standalone === true || matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches;
+  return apple && !fromHome;
+}
+function remembered(key) { try { return localStorage.getItem(key) === "yes"; } catch { return false; } }
+function remember(key) { try { localStorage.setItem(key, "yes"); } catch { /* not kept: it shows again next time */ } }
 const SEA = { ground: "#0b1820", raised: "#12262f", lit: "#1a3440", ink: "#e7eef2", ink_soft: "#a9bcc6", accent: "#7fd1e8", accent_2: "#b5e6f3", warn: "#ffb4a2", edge: "#24414d" };
 
 /**
@@ -46,6 +73,10 @@ class Visit extends Controller {
     this.caption = this.value("");
     this.settings = this.value({ invert_y: false }); // the seeker's own, saved on the platform
     this.settingsOpen = this.value(false);
+    this.canFill = this.value(canFill());
+    this.filled = this.value(false);
+    this.leftFullScreen = false; // they left it themselves: a touch no longer fills it
+    this.hint = this.value(typeof navigator !== "undefined" && iPhoneInBrowser() && !remembered(HINT_SEEN));
     this.world = null;
     this.start();
   }
@@ -64,7 +95,7 @@ class Visit extends Controller {
     };
   }
 
-  answers() { return [ENTERS_AS_GUEST, SETS_EMAIL, SENDS_CODE, SETS_CODE, ENTERS_WITH_CODE, STARTS_OVER, LEAVES, OPENS_SETTINGS, CLOSES_SETTINGS, INVERTS_Y]; }
+  answers() { return [ENTERS_AS_GUEST, SETS_EMAIL, SENDS_CODE, SETS_CODE, ENTERS_WITH_CODE, STARTS_OVER, LEAVES, OPENS_SETTINGS, CLOSES_SETTINGS, INVERTS_Y, FILLS_SCREEN, HIDES_HINT]; }
 
   /** The seeker's settings, as saved, put into effect. */
   async loadSettings() {
@@ -106,6 +137,8 @@ class Visit extends Controller {
     if (action === OPENS_SETTINGS) this.settingsOpen.setValue(true);
     if (action === CLOSES_SETTINGS) this.settingsOpen.setValue(false);
     if (action === INVERTS_Y) this.change({ invert_y: !this.settings.read().invert_y });
+    if (action === FILLS_SCREEN) { if (filled()) unfill(); else { this.leftFullScreen = false; fill(); } }
+    if (action === HIDES_HINT) { remember(HINT_SEEN); this.hint.setValue(false); }
     return null;
   }
 
@@ -154,6 +187,8 @@ export class LatentSea extends ChimeApp {
       [OPENS_SETTINGS]: ["Settings"],
       [CLOSES_SETTINGS]: ["Close"],
       [INVERTS_Y]: ["Invert Y"],
+      [FILLS_SCREEN]: ["Full screen"],
+      [HIDES_HINT]: ["Got it"],
     });
   }
 
@@ -176,6 +211,7 @@ export class LatentSea extends ChimeApp {
           ui.when(visit.caption.map((words) => words !== ""), ui.text(visit.caption, "Caption").wraps()),
           ui.button(LEAVES, { style: "SecondaryButton Leave" }),
           ui.button(OPENS_SETTINGS, { style: "SecondaryButton Cog" }),
+          ui.when(visit.canFill, ui.button(FILLS_SCREEN, { style: "SecondaryButton Fill" })),
           ui.when(visit.settingsOpen, this.settingsPanel(visit)),
           problem(),
         ])),
@@ -199,6 +235,10 @@ export class LatentSea extends ChimeApp {
           ui.button(SENDS_CODE, { style: "SecondaryButton" }),
         ], "EmailWay"),
       ], "Ways"),
+      ui.when(visit.hint, ui.column([
+        ui.text(Phrase.of("For full screen on an iPhone: tap Share, then Add to Home Screen, and open the Latent Sea from there."), "HintWords").wraps(),
+        ui.button(HIDES_HINT, { style: "SecondaryButton" }),
+      ], "Hint")),
       problem(),
     ], "Door");
   }
@@ -230,7 +270,7 @@ export class LatentSea extends ChimeApp {
     ], "SettingsPanel");
   }
 
-  probe() { return import("./probe.js?v=d83d8c4ae7d6").then((made) => new made.Probe(this)); }
+  probe() { return import("./probe.js?v=16bf1c83d35f").then((made) => new made.Probe(this)); }
 
   /** The app mounted: Google's button drawn whenever the door shows; the world started whenever someone is in. */
   mount(element) {
@@ -243,6 +283,14 @@ export class LatentSea extends ChimeApp {
         visit.door.drawGoogleButton(place, (credential, nonce) => visit.enterWithGoogle(credential, nonce))
           .catch((trouble) => visit.problem.setValue(trouble.message));
       });
+    });
+    // full screen: a touch fills it, until they leave it themselves
+    document.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "touch" && touchScreen() && canFill() && !filled() && !visit.leftFullScreen) fill();
+    }, true);
+    document.addEventListener("fullscreenchange", () => {
+      if (visit.filled.read() && !filled()) visit.leftFullScreen = true;
+      visit.filled.setValue(filled());
     });
     this.chimes.follow({ region: Chimes.GLOBAL }, "world", () => {
       if (visit.who.read() !== "in" || visit.world || !visit.door) return;
