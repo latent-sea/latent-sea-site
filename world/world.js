@@ -21,9 +21,9 @@
 // A front half runs as the page does: it is published by the world's owner
 // only. What it tells the host is a claim (F7); the host decides.
 
-import { Joysticks, touchScreen } from "./joysticks.js?v=2780c1afa36a";
-import { Speech } from "./speech.js?v=2780c1afa36a";
-import { Walker } from "./walker.js?v=2780c1afa36a";
+import { Joysticks, touchScreen } from "./joysticks.js?v=d83d8c4ae7d6";
+import { Speech } from "./speech.js?v=d83d8c4ae7d6";
+import { Walker } from "./walker.js?v=d83d8c4ae7d6";
 
 /** The Cache Storage the engine keeps module files in. */
 export const FILES_CACHE = "world-files-v1";
@@ -184,6 +184,23 @@ export class Scene {
     this._keep(() => globalThis.removeEventListener?.("keydown", heard));
   }
 
+  /**
+   * The seeker rides a vessel until the scene ends (walker.js): W and S row,
+   * A and D turn it slowly, nothing strafes. Each frame the scene reads
+   * scene.seeker.position, .heading, .velocity and .rowing to move the
+   * vessel, and sets scene.seeker.position.y to the seeker's eyes on it.
+   */
+  ride({ speed, turn } = {}) {
+    this.world.walker.ride({ speed, turn });
+    this._keep(() => this.world.walker.walk());
+  }
+
+  /** How big the world is drawn, in device pixels: { width, height }. */
+  get pixels() {
+    const canvas = this.world.renderer?.domElement;
+    return { width: canvas?.width || 1280, height: canvas?.height || 720 };
+  }
+
   /** The camera, taken from the seeker (a cut scene): they stop moving until it is given back or the scene ends. */
   takeCamera() {
     this.world.walker.paused = true;
@@ -339,6 +356,8 @@ export class World {
         this.renderer = null; // no WebGL here: the world still plays, undrawn
       }
       canvas.addEventListener("click", (event) => this._click(event, canvas));
+      // the aim, in the middle, while the mouse looks around
+      this.aim = canvas.parentElement ? this._makeAim(canvas.parentElement) : null;
       // two sticks over the world, on a touch screen: they sit in what holds the canvas
       this.joysticks = canvas.parentElement && joysticks ? new Joysticks(this.walker, canvas.parentElement, canvas) : null;
     }
@@ -480,6 +499,7 @@ export class World {
     if (!this.cameraTaken) this.walker.aim(this.camera);
     this.scene?._frame(seconds, this.clock);
     this.speech.frame();
+    this._showAim();
     if (this.renderer) {
       const canvas = this.renderer.domElement;
       const width = canvas.clientWidth || 1;
@@ -493,17 +513,56 @@ export class World {
     }
   }
 
-  /** A tap that wasn't a drag: whatever was pressed, if the scene listens for it. */
-  _click(event, canvas) {
-    if (this.walker.dragged > 6 || !this.scene) return;
-    const box = canvas.getBoundingClientRect();
-    const pointer = new this.three.Vector2(((event.clientX - box.left) / box.width) * 2 - 1, -((event.clientY - box.top) / box.height) * 2 + 1);
+  /** The aim: a small ring in the middle of the world, brighter over something that can be pressed. */
+  _makeAim(holder) {
+    const ring = document.createElement("div");
+    ring.className = "world-aim";
+    ring.setAttribute("aria-hidden", "true");
+    Object.assign(ring.style, {
+      position: "absolute", zIndex: "1", left: "50%", top: "50%", width: "14px", height: "14px", margin: "-7px 0 0 -7px",
+      borderRadius: "50%", border: "1.5px solid rgba(220, 245, 255, 0.55)", boxShadow: "0 0 6px rgba(140, 220, 255, 0.45)",
+      pointerEvents: "none", display: "none", transition: "transform 120ms ease-out, border-color 120ms",
+    });
+    holder.appendChild(ring);
+    return ring;
+  }
+
+  _showAim() {
+    if (!this.aim) return;
+    const shown = this.walker.mouseLooks && !this.cameraTaken;
+    this.aim.style.display = shown ? "block" : "none";
+    if (!shown) return;
+    const on = this._pressable(new this.three.Vector2(0, 0)) !== null;
+    this.aim.style.borderColor = on ? "rgba(255, 255, 255, 0.95)" : "rgba(220, 245, 255, 0.55)";
+    this.aim.style.transform = on ? "scale(1.35)" : "none";
+  }
+
+  /** What the scene would do if the thing at this point of the screen (-1 to 1 each way) were pressed, or null. */
+  _pressable(pointer) {
+    const things = [...(this.scene?._presses.keys() ?? [])];
+    if (!things.length || !this.three.Raycaster) return null;
     const ray = new this.three.Raycaster();
     ray.setFromCamera(pointer, this.camera);
-    for (const hit of ray.intersectObjects(this.stage.children, true)) {
+    for (const hit of ray.intersectObjects(things, true)) {
       const then = this.scene._pressed(hit.object);
-      if (then) { then(); return; }
+      if (then) return then;
     }
+    return null;
+  }
+
+  /** A press: with the mouse looking around, on what the aim is on; otherwise a tap that wasn't a drag, where it was. */
+  _click(event, canvas) {
+    if (!this.scene) return;
+    let pointer;
+    if (this.walker.pressAimed) {
+      pointer = new this.three.Vector2(0, 0);
+    } else {
+      // the click that takes the mouse presses nothing
+      if (this.walker.pressedWith === "mouse" || this.walker.dragged > 6) return;
+      const box = canvas.getBoundingClientRect();
+      pointer = new this.three.Vector2(((event.clientX - box.left) / box.width) * 2 - 1, -((event.clientY - box.top) / box.height) * 2 + 1);
+    }
+    this._pressable(pointer)?.();
   }
 
   failed(error) {
@@ -518,6 +577,7 @@ export class World {
     this.scene = null;
     this.walker.stop();
     this.joysticks?.stop();
+    this.aim?.remove();
     this.speech.stop();
     this.renderer?.dispose();
   }
