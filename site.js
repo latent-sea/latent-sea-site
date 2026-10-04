@@ -9,9 +9,9 @@
 // the developer's machine instead (world/dev/serve.mjs).
 
 import * as THREE from "three";
-import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=2ad9f918f9c6";
-import { World } from "./world/world.js?v=2ad9f918f9c6";
-import { DevDoor, Door } from "./door.js?v=2ad9f918f9c6";
+import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=8f6b5a6cb574";
+import { World } from "./world/world.js?v=8f6b5a6cb574";
+import { DevDoor, Door } from "./door.js?v=8f6b5a6cb574";
 
 const WORLD = "latent_sea";
 
@@ -211,7 +211,8 @@ export class LatentSea extends ChimeApp {
     const params = new URLSearchParams(location.search);
     // walked by its probe (?probe), the visit is handed a stand-in door and reaches nothing
     this.dev = params.has("dev");
-    const door = params.has("probe") ? null : this.dev ? new DevDoor() : new Door();
+    // a preview (web/world/preview) hands its own door to the page, before this runs
+    const door = params.has("probe") ? null : globalThis.worldPreview?.door ?? (this.dev ? new DevDoor() : new Door());
     const visit = this.visit = this.model(new Visit(this.chimes, door));
     const is = (who) => visit.who.map((now) => now === who);
     // why something didn't work, wherever the seeker is looking: a fresh one each place it shows
@@ -296,7 +297,7 @@ export class LatentSea extends ChimeApp {
     ], "Talk");
   }
 
-  probe() { return import("./probe.js?v=2ad9f918f9c6").then((made) => new made.Probe(this)); }
+  probe() { return import("./probe.js?v=8f6b5a6cb574").then((made) => new made.Probe(this)); }
 
   /** The app mounted: Google's button drawn whenever the door shows; the world started whenever someone is in. */
   mount(element) {
@@ -324,7 +325,7 @@ export class LatentSea extends ChimeApp {
     const canvas = document.createElement("canvas");
     canvas.tabIndex = 0;
     place.replaceChildren(canvas);
-    visit.world = new World({ name: WORLD, host: visit.door.host(), files: visit.door.files(), three: THREE, canvas, ui: visit.worldUi() });
+    visit.world = new World({ name: WORLD, host: visit.door.host(), files: visit.door.files(), three: THREE, canvas, ui: visit.worldUi(), importer: visit.door.importer });
     visit.loadSettings();
     try {
       await visit.world.enter();

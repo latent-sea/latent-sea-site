@@ -21,8 +21,8 @@
 // A front half runs as the page does: it is published by the world's owner
 // only. What it tells the host is a claim (F7); the host decides.
 
-import { Joysticks } from "./joysticks.js?v=2ad9f918f9c6";
-import { Walker } from "./walker.js?v=2ad9f918f9c6";
+import { Joysticks } from "./joysticks.js?v=8f6b5a6cb574";
+import { Walker } from "./walker.js?v=8f6b5a6cb574";
 
 /** The Cache Storage the engine keeps module files in. */
 export const FILES_CACHE = "world-files-v1";
@@ -287,7 +287,8 @@ export class World {
    *   three    the Three.js namespace
    *   canvas   where it is drawn; without one (or without WebGL) it plays undrawn
    *   ui       the page's: show(words), talk(spirit) -> Promise, failed(words)
-   *   importer (text, name) -> a module; importText in a browser
+   *   importer (text, name, path) -> a module; importText in a browser. A
+   *            preview loads the file at its path instead (preview/preview.js)
    *   joysticks false to leave out the sticks a touch screen gets (joysticks.js)
    */
   constructor({ name, host, files, three, canvas = null, ui = {}, joysticks = true, importer = importText, frames = globalThis.requestAnimationFrame?.bind(globalThis) }) {
@@ -353,7 +354,8 @@ export class World {
       const made = (async () => {
         if (!live.entry) return { default: null };
         const response = await this.files.get(`${this.name}/${module}/${live.version}/${live.entry}`);
-        return this.importer(await response.text(), `${this.name}/${module}/${live.entry}`);
+        const path = `${this.name}/${module}/${live.version}/${live.entry}`;
+        return this.importer(await response.text(), `${this.name}/${module}/${live.entry}`, path);
       })();
       made.catch(() => this._modules.delete(key));
       this._modules.set(key, made);
