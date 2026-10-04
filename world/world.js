@@ -21,6 +21,7 @@
 // A front half runs as the page does: it is published by the world's owner
 // only. What it tells the host is a claim (F7); the host decides.
 
+import { Joysticks } from "./joysticks.js";
 import { Walker } from "./walker.js";
 
 /** The Cache Storage the engine keeps module files in. */
@@ -287,8 +288,9 @@ export class World {
    *   canvas   where it is drawn; without one (or without WebGL) it plays undrawn
    *   ui       the page's: show(words), talk(spirit) -> Promise, failed(words)
    *   importer (text, name) -> a module; importText in a browser
+   *   joysticks false to leave out the sticks a touch screen gets (joysticks.js)
    */
-  constructor({ name, host, files, three, canvas = null, ui = {}, importer = importText, frames = globalThis.requestAnimationFrame?.bind(globalThis) }) {
+  constructor({ name, host, files, three, canvas = null, ui = {}, joysticks = true, importer = importText, frames = globalThis.requestAnimationFrame?.bind(globalThis) }) {
     this.name = name;
     this.host = host;
     this.files = files;
@@ -314,6 +316,8 @@ export class World {
         this.renderer = null; // no WebGL here: the world still plays, undrawn
       }
       canvas.addEventListener("click", (event) => this._click(event, canvas));
+      // two sticks over the world, on a touch screen: they sit in what holds the canvas
+      this.joysticks = canvas.parentElement && joysticks ? new Joysticks(this.walker, canvas.parentElement, canvas) : null;
     }
   }
 
@@ -437,6 +441,7 @@ export class World {
     this.scene?.leave();
     this.scene = null;
     this.walker.stop();
+    this.joysticks?.stop();
     this.renderer?.dispose();
   }
 }

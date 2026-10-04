@@ -1,12 +1,15 @@
 // The seeker on foot (B1): where they are, which way they face, and how a
 // person moves them. Keys: W A S D or the arrows walk, Shift runs; dragging
-// looks around. On a touch screen, a finger on the left half walks (how far it
-// moves from where it landed), one on the right half looks.
+// looks around. On a touch screen, two sticks (joysticks.js) set `move` and
+// `look`: how far each is pushed, -1 to 1 either way.
 
 const EYES = 1.6;
 const WALK = 4;
 const RUN = 9;
 const LOOK = 0.004;
+/** How fast a stick pushed all the way turns the seeker, in radians a second: across, and up and down. */
+const TURN = 2.4;
+const TILT = 1.4;
 
 export class Walker {
   /**
@@ -23,8 +26,11 @@ export class Walker {
     /** The seeker's own setting: dragging up looks down, as with a flight stick. */
     this.invertY = false;
     this.keys = new Set();
-    this.stick = null;   // the walking finger: { id, x, y, dx, dy }
-    this.looking = null; // the looking pointer: { id, x, y }
+    /** The walking stick: x to the right, y forward, each -1 to 1. */
+    this.move = { x: 0, y: 0 };
+    /** The looking stick: x to the right, y up, each -1 to 1; it turns the seeker while held. */
+    this.look = { x: 0, y: 0 };
+    this.looking = null; // the looking pointer, dragged on the world: { id, x, y }
     this.dragged = 0;    // how far the last press moved: a press that didn't is a tap
     this._off = [];
     if (element) this.listen(element);
@@ -41,17 +47,11 @@ export class Walker {
     on(window, "blur", () => this.keys.clear());
     on(element, "pointerdown", (event) => {
       this.dragged = 0;
-      const left = event.pointerType === "touch" && event.clientX < element.clientWidth / 2;
-      if (left && !this.stick) this.stick = { id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, dy: 0 };
-      else if (!this.looking) this.looking = { id: event.pointerId, x: event.clientX, y: event.clientY };
-      element.setPointerCapture?.(event.pointerId);
+      if (!this.looking) this.looking = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      try { element.setPointerCapture(event.pointerId); } catch { /* a pointer the browser can't hold to the world still looks */ }
     });
     on(element, "pointermove", (event) => {
-      if (this.stick?.id === event.pointerId) {
-        this.stick.dx = event.clientX - this.stick.x;
-        this.stick.dy = event.clientY - this.stick.y;
-        this.dragged += Math.abs(event.movementX) + Math.abs(event.movementY);
-      } else if (this.looking?.id === event.pointerId) {
+      if (this.looking?.id === event.pointerId) {
         const dx = event.clientX - this.looking.x;
         const dy = event.clientY - this.looking.y;
         this.looking.x = event.clientX;
@@ -61,7 +61,6 @@ export class Walker {
       }
     });
     const up = (event) => {
-      if (this.stick?.id === event.pointerId) this.stick = null;
       if (this.looking?.id === event.pointerId) this.looking = null;
     };
     on(element, "pointerup", up);
@@ -81,9 +80,18 @@ export class Walker {
     this.pitch = 0;
   }
 
-  /** Moves the seeker for `seconds` by what is held down. */
+  /** Turns the seeker by the looking stick, for `seconds`. Pushed up, they look up (or down, with Invert Y). */
+  turnByStick(seconds) {
+    const { x, y } = this.look;
+    if (!x && !y) return;
+    this.yaw -= x * TURN * seconds;
+    this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch + (this.invertY ? -y : y) * TILT * seconds));
+  }
+
+  /** Moves and turns the seeker for `seconds` by what is held down. */
   update(seconds) {
     if (this.paused) return;
+    this.turnByStick(seconds);
     let forward = 0;
     let side = 0;
     const held = (...codes) => codes.some((code) => this.keys.has(code));
@@ -91,12 +99,11 @@ export class Walker {
     if (held("KeyS", "ArrowDown")) forward -= 1;
     if (held("KeyD", "ArrowRight")) side += 1;
     if (held("KeyA", "ArrowLeft")) side -= 1;
-    if (this.stick) {
-      forward -= Math.max(-1, Math.min(1, this.stick.dy / 60));
-      side += Math.max(-1, Math.min(1, this.stick.dx / 60));
-    }
+    forward += this.move.y;
+    side += this.move.x;
     const length = Math.hypot(forward, side);
     if (length === 0) return;
+    // a stick part way pushed walks slower: its length is under 1
     const speed = (held("ShiftLeft", "ShiftRight") ? RUN : WALK) * seconds / Math.max(1, length);
     const sin = Math.sin(this.yaw);
     const cos = Math.cos(this.yaw);

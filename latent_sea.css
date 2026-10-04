@@ -46,3 +46,6 @@ html, body { margin: 0; height: 100%; background: #0b1820; color: #e7eef2; overf
   padding: 1rem; border-radius: 1rem; background: rgba(8, 20, 28, 0.92); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4); }
 #app .Setting { width: 100%; justify-content: space-between; }
 #app .SettingState { color: #7fd1e8; font-weight: 600; }
+
+/* on a touch screen, the scene's words sit above the two sticks at the bottom */
+@media (pointer: coarse) { #app .Caption { bottom: calc(160px + env(safe-area-inset-bottom, 0px)); } }
