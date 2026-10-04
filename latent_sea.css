@@ -14,7 +14,13 @@ html, body { margin: 0; height: 100%; background: #0b1820; color: #e7eef2; overf
 #app .Lead { max-width: 30rem; color: #a9bcc6; }
 #app .Ways { gap: 0.75rem; align-items: center; }
 #app .EmailWay { gap: 0.5rem; align-items: stretch; width: min(22rem, 100%); }
-#app .GoogleButton { min-height: 44px; }
+/* Google's button is a light page in a frame: on a dark page the browser paints that frame white
+   unless it is told the frame's ground is light too, which leaves it transparent */
+#app .GoogleButton { min-height: 44px; padding: 0; background: transparent; color-scheme: light; }
+/* the door's words are not text to type in: no caret on them, only in the fields */
+#app .Door { caret-color: transparent; }
+#app .Door .Title { user-select: none; }
+#app .Door .chime-field { caret-color: auto; }
 
 #app .Caption { position: fixed; z-index: 1; left: 50%; bottom: 1.5rem; transform: translateX(-50%); max-width: min(36rem, calc(100% - 2rem)); padding: 0.6rem 1rem; border-radius: 999px;
   background: rgba(8, 20, 28, 0.72); text-align: center; pointer-events: none; }
