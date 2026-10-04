@@ -9,9 +9,9 @@
 // the developer's machine instead (world/dev/serve.mjs).
 
 import * as THREE from "three";
-import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js";
-import { World } from "./world/world.js";
-import { DevDoor, Door } from "./door.js";
+import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=1b3b6febfccb";
+import { World } from "./world/world.js?v=1b3b6febfccb";
+import { DevDoor, Door } from "./door.js?v=1b3b6febfccb";
 
 const WORLD = "latent_sea";
 
@@ -296,7 +296,7 @@ export class LatentSea extends ChimeApp {
     ], "Talk");
   }
 
-  probe() { return import("./probe.js").then((made) => new made.Probe(this)); }
+  probe() { return import("./probe.js?v=1b3b6febfccb").then((made) => new made.Probe(this)); }
 
   /** The app mounted: Google's button drawn whenever the door shows; the world started whenever someone is in. */
   mount(element) {

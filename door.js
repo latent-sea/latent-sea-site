@@ -4,8 +4,8 @@
 // storage, or, opened with ?dev, the developer's machine (world/dev/serve.mjs).
 // Every answer is { ok, error }.
 
-import { Backend } from "./backend/backend.js";
-import { devFiles, devHost, platformFiles, platformHost } from "./world/world.js";
+import { Backend } from "./backend/backend.js?v=1b3b6febfccb";
+import { devFiles, devHost, platformFiles, platformHost } from "./world/world.js?v=1b3b6febfccb";
 
 // public: the platform's address, its publishable key, and the Google client the platform accepts
 const PLATFORM = "https://api.latent-sea.com";

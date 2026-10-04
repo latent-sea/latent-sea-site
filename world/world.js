@@ -21,8 +21,8 @@
 // A front half runs as the page does: it is published by the world's owner
 // only. What it tells the host is a claim (F7); the host decides.
 
-import { Joysticks } from "./joysticks.js";
-import { Walker } from "./walker.js";
+import { Joysticks } from "./joysticks.js?v=1b3b6febfccb";
+import { Walker } from "./walker.js?v=1b3b6febfccb";
 
 /** The Cache Storage the engine keeps module files in. */
 export const FILES_CACHE = "world-files-v1";
