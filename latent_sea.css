@@ -21,6 +21,8 @@ html, body { margin: 0; height: 100%; background: #0b1820; color: #e7eef2; overf
 #app .Door { caret-color: transparent; }
 #app .Door .Title { user-select: none; }
 #app .Door .chime-field { caret-color: auto; }
+/* no hints at the door: a button that can't be pressed yet is dimmed, which says enough */
+#app .Door .Reason { display: none; }
 
 #app .Caption { position: fixed; z-index: 1; left: 50%; bottom: 1.5rem; transform: translateX(-50%); max-width: min(36rem, calc(100% - 2rem)); padding: 0.6rem 1rem; border-radius: 999px;
   background: rgba(8, 20, 28, 0.72); text-align: center; pointer-events: none; }
