@@ -3,7 +3,7 @@
 html, body { margin: 0; height: 100%; background: #0b1820; color: #e7eef2; overflow: hidden; }
 #app { position: fixed; inset: 0; }
 #app .chime-app, #app .Sea { height: 100%; }
-#app .Sea > .chime-stack > .Problem { position: fixed; z-index: 1; top: 0.75rem; left: 0.75rem; max-width: calc(100% - 8rem); }
+#app .Sea > .chime-stack > .Problem { position: fixed; z-index: 1; top: 0.75rem; left: 4.5rem; max-width: calc(100% - 12rem); }
 
 #app .WorldView { position: fixed; inset: 0; padding: 0; }
 #app .WorldView canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; outline: none; }
@@ -37,3 +37,12 @@ html, body { margin: 0; height: 100%; background: #0b1820; color: #e7eef2; overf
 #app .FromSpirit { align-self: flex-start; background: #23323a; padding: 0.4rem 0.75rem; border-radius: 0.75rem; max-width: 85%; }
 #app .Problem { color: #ffb4a2; font-weight: 600; }
 #app .Quiet { color: #a9bcc6; }
+
+/* the cog, top left: its word is for screen readers; a cog is drawn in its place */
+#app .Cog { position: fixed; z-index: 1; top: 0.75rem; left: 0.75rem; width: 44px; height: 44px; padding: 0; justify-content: center; }
+#app .Cog > .chime-column { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#app .Cog::before { content: "\2699\FE0E"; font-size: 1.4rem; line-height: 1; }
+#app .SettingsPanel { position: fixed; z-index: 2; top: 4rem; left: 1rem; width: min(20rem, calc(100% - 2rem)); display: flex; flex-direction: column; gap: 0.75rem;
+  padding: 1rem; border-radius: 1rem; background: rgba(8, 20, 28, 0.92); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4); }
+#app .Setting { width: 100%; justify-content: space-between; }
+#app .SettingState { color: #7fd1e8; font-weight: 600; }

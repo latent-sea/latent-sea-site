@@ -20,6 +20,8 @@ export class Walker {
     this.pitch = 0;
     /** While a scene holds the camera, the seeker doesn't move. */
     this.paused = false;
+    /** The seeker's own setting: dragging up looks down, as with a flight stick. */
+    this.invertY = false;
     this.keys = new Set();
     this.stick = null;   // the walking finger: { id, x, y, dx, dy }
     this.looking = null; // the looking pointer: { id, x, y }
@@ -69,7 +71,7 @@ export class Walker {
 
   turn(dx, dy) {
     this.yaw -= dx * LOOK;
-    this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch - dy * LOOK));
+    this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch - (this.invertY ? -dy : dy) * LOOK));
   }
 
   /** Puts the seeker at (x, z), on their feet, facing `yaw` if given. */

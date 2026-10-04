@@ -25,6 +25,9 @@ const SETS_DRAFT = "sets_the_draft";
 const SAYS = "says_it";
 const ENDS_TALK = "ends_the_conversation";
 const LEAVES = "leaves";
+const OPENS_SETTINGS = "opens_settings";
+const CLOSES_SETTINGS = "closes_settings";
+const INVERTS_Y = "inverts_y";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SEA = { ground: "#0b1820", raised: "#12262f", lit: "#1a3440", ink: "#e7eef2", ink_soft: "#a9bcc6", accent: "#7fd1e8", accent_2: "#b5e6f3", warn: "#ffb4a2", edge: "#24414d" };
@@ -47,6 +50,8 @@ class Visit extends Controller {
     this.messages = this.value([]);    // { id, from: seeker or spirit, text }
     this.draft = this.value("");
     this.waiting = this.value(false);
+    this.settings = this.value({ invert_y: false }); // the seeker's own, saved on the platform
+    this.settingsOpen = this.value(false);
     this.world = null;
     this._closed = null;
     this.start();
@@ -77,7 +82,27 @@ class Visit extends Controller {
     return new Promise((done) => { this._closed = done; });
   }
 
-  answers() { return [ENTERS_AS_GUEST, SETS_EMAIL, SENDS_CODE, SETS_CODE, ENTERS_WITH_CODE, STARTS_OVER, SETS_DRAFT, SAYS, ENDS_TALK, LEAVES]; }
+  answers() { return [ENTERS_AS_GUEST, SETS_EMAIL, SENDS_CODE, SETS_CODE, ENTERS_WITH_CODE, STARTS_OVER, SETS_DRAFT, SAYS, ENDS_TALK, LEAVES, OPENS_SETTINGS, CLOSES_SETTINGS, INVERTS_Y]; }
+
+  /** The seeker's settings, as saved, put into effect. */
+  async loadSettings() {
+    const loaded = await this.door.loadSettings();
+    if (!loaded.ok) this.problem.setValue(loaded.error);
+    this.settings.setValue(loaded.settings);
+    this.applySettings();
+  }
+
+  applySettings() {
+    if (this.world) this.world.walker.invertY = this.settings.read().invert_y === true;
+  }
+
+  /** A setting changed: in effect at once, then saved. */
+  async change(changes) {
+    this.settings.setValue({ ...this.settings.read(), ...changes });
+    this.applySettings();
+    const saved = await this.door.saveSettings(this.settings.read());
+    if (!saved.ok) this.problem.setValue(saved.error);
+  }
 
   would(action) {
     if ([ENTERS_AS_GUEST, SENDS_CODE, ENTERS_WITH_CODE].includes(action) && this.busy.read()) return Phrase.of("Opening the way");
@@ -101,6 +126,9 @@ class Visit extends Controller {
     if (action === SAYS) this.say();
     if (action === ENDS_TALK) this.endTalk();
     if (action === LEAVES) this.leave();
+    if (action === OPENS_SETTINGS) this.settingsOpen.setValue(true);
+    if (action === CLOSES_SETTINGS) this.settingsOpen.setValue(false);
+    if (action === INVERTS_Y) this.change({ invert_y: !this.settings.read().invert_y });
     return null;
   }
 
@@ -151,6 +179,8 @@ class Visit extends Controller {
     this.world = null;
     this.caption.setValue("");
     this.problem.setValue("");
+    this.settingsOpen.setValue(false);
+    this.settings.setValue({ invert_y: false });
     await this.door.signOut();
   }
 }
@@ -170,6 +200,9 @@ export class LatentSea extends ChimeApp {
       [SAYS]: ["Say"],
       [ENDS_TALK]: ["Close"],
       [LEAVES]: ["Leave"],
+      [OPENS_SETTINGS]: ["Settings"],
+      [CLOSES_SETTINGS]: ["Close"],
+      [INVERTS_Y]: ["Invert Y"],
     });
   }
 
@@ -190,6 +223,8 @@ export class LatentSea extends ChimeApp {
           ui.surface("WorldView").named("world-view"),
           ui.when(visit.caption.map((words) => words !== ""), ui.text(visit.caption, "Caption").wraps()),
           ui.button(LEAVES, { style: "SecondaryButton Leave" }),
+          ui.button(OPENS_SETTINGS, { style: "SecondaryButton Cog" }),
+          ui.when(visit.settingsOpen, this.settingsPanel(visit)),
           ui.when(visit.spirit.map((spirit) => spirit !== ""), this.conversation(visit, problem)),
           ui.when(visit.spirit.map((spirit) => spirit === ""), problem()),
         ])),
@@ -229,6 +264,19 @@ export class LatentSea extends ChimeApp {
       ], "EmailWay"),
       problem(),
     ], "Door");
+  }
+
+  /** The seeker's settings: one for now. */
+  settingsPanel(visit) {
+    const ui = this.ui;
+    const inverted = visit.settings.map((now) => now.invert_y === true);
+    return ui.column([
+      ui.row([ui.text(Phrase.of("Settings"), "TalkTitle"), ui.button(CLOSES_SETTINGS, { style: "SecondaryButton" })], "TalkHead"),
+      ui.pressable(INVERTS_Y, {}, [
+        ui.text(ui.words(INVERTS_Y), "SettingName").grow(),
+        ui.text(inverted.map((on) => (on ? "On" : "Off")), "SettingState"),
+      ], "Setting"),
+    ], "SettingsPanel");
   }
 
   conversation(visit, problem) {
@@ -277,6 +325,7 @@ export class LatentSea extends ChimeApp {
     canvas.tabIndex = 0;
     place.replaceChildren(canvas);
     visit.world = new World({ name: WORLD, host: visit.door.host(), files: visit.door.files(), three: THREE, canvas, ui: visit.worldUi() });
+    visit.loadSettings();
     try {
       await visit.world.enter();
     } catch (trouble) {

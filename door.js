@@ -40,16 +40,37 @@ export class Door {
 
   signOut() { return this.backend.signOut(); }
 
+  /** The seeker's settings, as saved on the platform (backend.sql), or the defaults: { ok, settings, error }. */
+  async loadSettings() {
+    const reply = await this.backend.select("latent_sea_settings", "select=invert_y");
+    if (!reply.ok) return { ...answer(reply), settings: { ...DEFAULTS } };
+    return { ok: true, error: "", settings: { ...DEFAULTS, ...(reply.data[0] ?? {}) } };
+  }
+
+  /** The seeker's settings saved: their row made the first time, changed after. */
+  async saveSettings(settings) {
+    const changes = { invert_y: !!settings.invert_y, updated_at: new Date().toISOString() };
+    const changed = await this.backend.update("latent_sea_settings", `seeker=eq.${encodeURIComponent(this.backend.playerId())}`, changes);
+    if (changed.ok && Array.isArray(changed.data) && changed.data.length) return answer(changed);
+    if (!changed.ok) return answer(changed);
+    return answer(await this.backend.insert("latent_sea_settings", changes));
+  }
+
   /** Where the world comes from: the platform, as the signed-in seeker. */
   host() { return platformHost(this.backend); }
   files() { return platformFiles(this.backend); }
 }
 
-/** Dev mode: no one signs in; the world comes from the dev server, every module granted. */
+/** What a seeker's settings are until they change them. */
+export const DEFAULTS = { invert_y: false };
+
+/** Dev mode: no one signs in; the world comes from the dev server, every module granted; settings kept for the visit. */
 export class DevDoor {
-  constructor(base = `${location.origin}/dev`) { this.base = base; }
+  constructor(base = `${location.origin}/dev`) { this.base = base; this.settings = { ...DEFAULTS }; }
   async restore() { return true; }
   async signOut() {}
+  async loadSettings() { return { ok: true, error: "", settings: { ...this.settings } }; }
+  async saveSettings(settings) { this.settings = { ...this.settings, ...settings }; return { ok: true, error: "" }; }
   host() { return devHost(this.base); }
   files() { return devFiles(this.base); }
 }
