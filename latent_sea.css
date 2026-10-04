@@ -24,19 +24,13 @@ html, body { margin: 0; height: 100%; background: #0b1820; color: #e7eef2; overf
 /* no hints at the door: a button that can't be pressed yet is dimmed, which says enough */
 #app .Door .Reason { display: none; }
 
-#app .Caption { position: fixed; z-index: 1; left: 50%; bottom: 1.5rem; transform: translateX(-50%); max-width: min(36rem, calc(100% - 2rem)); padding: 0.6rem 1rem; border-radius: 999px;
+#app .Caption { position: fixed; z-index: 1; left: 50%; top: calc(4.25rem + env(safe-area-inset-top, 0px)); transform: translateX(-50%); max-width: min(36rem, calc(100% - 2rem)); padding: 0.6rem 1rem; border-radius: 999px;
   background: rgba(8, 20, 28, 0.72); text-align: center; pointer-events: none; }
 #app .Leave { position: fixed; z-index: 1; top: 0.75rem; right: 0.75rem; }
 
-#app .Talk { position: fixed; z-index: 2; right: 1rem; bottom: 1rem; width: min(26rem, calc(100% - 2rem)); max-height: min(32rem, calc(100% - 5rem)); display: flex; flex-direction: column; gap: 0.75rem;
-  padding: 1rem; border-radius: 1rem; background: rgba(8, 20, 28, 0.9); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4); }
 #app .TalkHead { justify-content: space-between; align-items: center; gap: 0.5rem; }
 #app .TalkTitle { font-weight: 600; }
-#app .Said { gap: 0.5rem; overflow-y: auto; }
-#app .FromSeeker { align-self: flex-end; background: #1f4a5e; padding: 0.4rem 0.75rem; border-radius: 0.75rem; max-width: 85%; }
-#app .FromSpirit { align-self: flex-start; background: #23323a; padding: 0.4rem 0.75rem; border-radius: 0.75rem; max-width: 85%; }
 #app .Problem { color: #ffb4a2; font-weight: 600; }
-#app .Quiet { color: #a9bcc6; }
 
 /* the cog, top left: its word is for screen readers; a cog is drawn in its place */
 #app .Cog { position: fixed; z-index: 1; top: 0.75rem; left: 0.75rem; width: 44px; height: 44px; padding: 0; justify-content: center; }
@@ -47,5 +41,3 @@ html, body { margin: 0; height: 100%; background: #0b1820; color: #e7eef2; overf
 #app .Setting { width: 100%; justify-content: space-between; }
 #app .SettingState { color: #7fd1e8; font-weight: 600; }
 
-/* on a touch screen, the scene's words sit above the two sticks at the bottom */
-@media (pointer: coarse) { #app .Caption { bottom: calc(160px + env(safe-area-inset-bottom, 0px)); } }

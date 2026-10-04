@@ -21,8 +21,9 @@
 // A front half runs as the page does: it is published by the world's owner
 // only. What it tells the host is a claim (F7); the host decides.
 
-import { Joysticks } from "./joysticks.js?v=8f6b5a6cb574";
-import { Walker } from "./walker.js?v=8f6b5a6cb574";
+import { Joysticks, touchScreen } from "./joysticks.js?v=2780c1afa36a";
+import { Speech } from "./speech.js?v=2780c1afa36a";
+import { Walker } from "./walker.js?v=2780c1afa36a";
 
 /** The Cache Storage the engine keeps module files in. */
 export const FILES_CACHE = "world-files-v1";
@@ -116,6 +117,7 @@ export class Scene {
     this._undo = [];
     this._updaters = new Set();
     this._reaches = new Set();
+    this._listeners = new Set(); // spirits listening for the seeker: { voice, spirit, range, said }
     this._presses = new Map(); // object -> handler
     this._left = false;
   }
@@ -222,10 +224,28 @@ export class Scene {
     return this.world.files.get(`${this.world.name}/${module}/${live.version}/${file}`);
   }
 
-  /** A conversation with a spirit this scene uses, until the seeker closes it. */
-  talk(spirit) {
+  /**
+   * A creature's voice: its name and colour in the subtitles, and where it
+   * is (an object of the scene, or a point), for the pointer. voice.say(words)
+   * waits for the floor, is shown at reading pace, and answers when said.
+   */
+  voice({ name, colour = "#cfe8f2", at }) {
+    const voice = { name: String(name), colour, at, say: (words) => this.world.speech.say(voice, words) };
+    return voice;
+  }
+
+  /**
+   * A spirit this scene uses listens through a voice: what the seeker says
+   * within `range` of it goes to the spirit, on the server, and its answer is
+   * spoken by the voice. Only the page keeps the conversation (H1).
+   */
+  listen(voice, { spirit, range = 4, turns = 20 }) {
     if (!this._modules.has(spirit)) throw new Error(`${this.module} doesn't use ${spirit}`);
-    return this.world.ui.talk?.(spirit) ?? Promise.resolve();
+    // turns: as many as the spirit's module.json allows (spirit.max_turns); older ones are let go
+    const listener = { voice, spirit, range, turns, said: [] };
+    this._listeners.add(listener);
+    this._keep(() => this._listeners.delete(listener));
+    return listener;
   }
 
   /**
@@ -272,6 +292,7 @@ export class Scene {
     }
     this._updaters.clear();
     this._reaches.clear();
+    this._listeners.clear();
     this._presses.clear();
   }
 }
@@ -286,12 +307,13 @@ export class World {
    *   files    platformFiles(backend) or devFiles(base)
    *   three    the Three.js namespace
    *   canvas   where it is drawn; without one (or without WebGL) it plays undrawn
-   *   ui       the page's: show(words), talk(spirit) -> Promise, failed(words)
+   *   ui       the page's: show(words), failed(words)
    *   importer (text, name, path) -> a module; importText in a browser. A
    *            preview loads the file at its path instead (preview/preview.js)
    *   joysticks false to leave out the sticks a touch screen gets (joysticks.js)
+   *   speech   options for the subtitles (speech.js): pace, wait, for tests
    */
-  constructor({ name, host, files, three, canvas = null, ui = {}, joysticks = true, importer = importText, frames = globalThis.requestAnimationFrame?.bind(globalThis) }) {
+  constructor({ name, host, files, three, canvas = null, ui = {}, joysticks = true, speech = {}, importer = importText, frames = globalThis.requestAnimationFrame?.bind(globalThis) }) {
     this.name = name;
     this.host = host;
     this.files = files;
@@ -320,6 +342,57 @@ export class World {
       // two sticks over the world, on a touch screen: they sit in what holds the canvas
       this.joysticks = canvas.parentElement && joysticks ? new Joysticks(this.walker, canvas.parentElement, canvas) : null;
     }
+    // speech, as subtitles over the world, one speaker at a time
+    this.speech = new Speech({
+      holder: canvas?.parentElement ?? null, touch: touchScreen(),
+      where: (speaker) => this.onScreen(speaker.at),
+      heard: () => this.listening() !== null,
+      spoken: (words) => this.answer(words),
+      ...speech,
+    });
+  }
+
+  /** Where a thing (an object or a point) is on screen, { x, y } from 0 to 1; behind the seeker, pushed to the edge it is nearest. */
+  onScreen(at) {
+    if (!at || !this.three.Vector3) return null;
+    const point = new this.three.Vector3();
+    if (at.isObject3D) at.getWorldPosition(point); else point.set(at.x ?? 0, at.y ?? 1.6, at.z ?? 0);
+    if (!point.project) return null;
+    point.project(this.camera);
+    let x = point.x;
+    let y = point.y;
+    if (point.z > 1) { x = -x * 100; y = -y * 100; } // behind: the pointer turns away from where it would be
+    return { x: (x + 1) / 2, y: (1 - y) / 2 };
+  }
+
+  /** The spirit listening nearest the seeker, within its range, or null. */
+  listening() {
+    const seeker = this.walker.position;
+    let nearest = null;
+    let best = Infinity;
+    for (const listener of this.scene?._listeners ?? []) {
+      const at = listener.voice.at;
+      const point = at?.isObject3D && this.three.Vector3 ? at.getWorldPosition(new this.three.Vector3()) : at;
+      if (!point) continue;
+      const far = Math.hypot(seeker.x - point.x, seeker.z - point.z);
+      if (far <= listener.range && far < best) { best = far; nearest = listener; }
+    }
+    return nearest;
+  }
+
+  /** What the seeker said, answered by the spirit listening nearest, if any: its words come when the server gives them. */
+  answer(words) {
+    const listener = this.listening();
+    if (!listener) return;
+    listener.said.push({ from: "seeker", text: words });
+    // the server takes a conversation of at most so many turns; the oldest go first, so it always begins with the seeker
+    while (listener.said.length > listener.turns * 2 - 1) listener.said.splice(0, 2);
+    const reply = this.say(listener.spirit, listener.said.map(({ from, text }) => ({ from, text }))).then((answered) => {
+      if (answered.error) { this.failed(answered.error); listener.said.pop(); return ""; }
+      listener.said.push({ from: "spirit", text: answered.reply });
+      return answered.reply;
+    });
+    listener.voice.say(reply);
   }
 
   /** Where the seeker is: asked of the host, then played. */
@@ -406,6 +479,7 @@ export class World {
     this.walker.update(seconds);
     if (!this.cameraTaken) this.walker.aim(this.camera);
     this.scene?._frame(seconds, this.clock);
+    this.speech.frame();
     if (this.renderer) {
       const canvas = this.renderer.domElement;
       const width = canvas.clientWidth || 1;
@@ -444,6 +518,7 @@ export class World {
     this.scene = null;
     this.walker.stop();
     this.joysticks?.stop();
+    this.speech.stop();
     this.renderer?.dispose();
   }
 }

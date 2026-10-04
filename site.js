@@ -2,16 +2,17 @@
 // (world/, D-015) from modules the platform grants seeker by seeker. This page
 // only lets them in and carries what the engine asks of it:
 //   - the door: enter as a guest, with Google, or with a code emailed to them;
-//   - the world, filling the window, with words over it when a scene shows some;
-//   - a conversation with a spirit, when a scene opens one (G1).
+//   - the world, filling the window, with words over it when a scene shows some.
+// Creatures and the seeker speak in subtitles, which the engine draws
+// (world/speech.js), one at a time (G1).
 // Nothing of the world is in this page: its scenes, regions and spirits come
 // from the platform as the host names them. Opened with ?dev, they come from
 // the developer's machine instead (world/dev/serve.mjs).
 
 import * as THREE from "three";
-import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=8f6b5a6cb574";
-import { World } from "./world/world.js?v=8f6b5a6cb574";
-import { DevDoor, Door } from "./door.js?v=8f6b5a6cb574";
+import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=2780c1afa36a";
+import { World } from "./world/world.js?v=2780c1afa36a";
+import { DevDoor, Door } from "./door.js?v=2780c1afa36a";
 
 const WORLD = "latent_sea";
 
@@ -21,9 +22,6 @@ const SENDS_CODE = "sends_a_code";
 const SETS_CODE = "sets_the_code";
 const ENTERS_WITH_CODE = "enters_with_the_code";
 const STARTS_OVER = "starts_over";
-const SETS_DRAFT = "sets_the_draft";
-const SAYS = "says_it";
-const ENDS_TALK = "ends_the_conversation";
 const LEAVES = "leaves";
 const OPENS_SETTINGS = "opens_settings";
 const CLOSES_SETTINGS = "closes_settings";
@@ -34,7 +32,7 @@ const SEA = { ground: "#0b1820", raised: "#12262f", lit: "#1a3440", ink: "#e7eef
 
 /**
  * A visit: who is in, how they are getting in, what the world says over
- * itself, and the conversation open with a spirit, if any.
+ * itself, and the settings.
  */
 class Visit extends Controller {
   constructor(chimes, door) {
@@ -46,14 +44,9 @@ class Visit extends Controller {
     this.busy = this.value(false);
     this.problem = this.value("");
     this.caption = this.value("");
-    this.spirit = this.value("");      // the spirit talked with, or ""
-    this.messages = this.value([]);    // { id, from: seeker or spirit, text }
-    this.draft = this.value("");
-    this.waiting = this.value(false);
     this.settings = this.value({ invert_y: false }); // the seeker's own, saved on the platform
     this.settingsOpen = this.value(false);
     this.world = null;
-    this._closed = null;
     this.start();
   }
 
@@ -68,21 +61,10 @@ class Visit extends Controller {
     return {
       show: (words) => this.caption.setValue(String(words ?? "")),
       failed: (words) => this.problem.setValue(String(words)),
-      talk: (spirit) => this.talk(spirit),
     };
   }
 
-  /** A conversation with a spirit, open until the seeker closes it. Only the page keeps it (H1). */
-  talk(spirit) {
-    this._closed?.();
-    this.spirit.setValue(spirit);
-    this.messages.setValue([]);
-    this.draft.setValue("");
-    this.problem.setValue("");
-    return new Promise((done) => { this._closed = done; });
-  }
-
-  answers() { return [ENTERS_AS_GUEST, SETS_EMAIL, SENDS_CODE, SETS_CODE, ENTERS_WITH_CODE, STARTS_OVER, SETS_DRAFT, SAYS, ENDS_TALK, LEAVES, OPENS_SETTINGS, CLOSES_SETTINGS, INVERTS_Y]; }
+  answers() { return [ENTERS_AS_GUEST, SETS_EMAIL, SENDS_CODE, SETS_CODE, ENTERS_WITH_CODE, STARTS_OVER, LEAVES, OPENS_SETTINGS, CLOSES_SETTINGS, INVERTS_Y]; }
 
   /** The seeker's settings, as saved, put into effect. */
   async loadSettings() {
@@ -108,23 +90,18 @@ class Visit extends Controller {
     if ([ENTERS_AS_GUEST, SENDS_CODE, ENTERS_WITH_CODE].includes(action) && this.busy.read()) return Phrase.of("Opening the way");
     if (action === SENDS_CODE && !EMAIL.test(this.email.read().trim())) return Phrase.of("Type your email address");
     if (action === ENTERS_WITH_CODE && !/^\d{6}$/.test(this.code.read().trim())) return Phrase.of("Type the six-digit code from the email");
-    if (action === SAYS && !this.draft.read().trim()) return Phrase.of("Type something to say");
-    if (action === SAYS && this.waiting.read()) return Phrase.of("The spirit is answering");
     return null;
   }
 
   told(action, payload) {
     if (action === SETS_EMAIL) this.email.setValue(payload.line);
     if (action === SETS_CODE) this.code.setValue(payload.line);
-    if (action === SETS_DRAFT) this.draft.setValue(payload.line);
     if (action === ENTERS_AS_GUEST) this.enter(() => this.door.enterAsGuest());
     if (action === SENDS_CODE) {
       this.attempt(() => this.door.requestCode(this.email.read().trim())).then((done) => { if (done) this.who.setValue("code"); });
     }
     if (action === ENTERS_WITH_CODE) this.enter(() => this.door.enterWithCode(this.email.read().trim(), this.code.read().trim()));
     if (action === STARTS_OVER) { this.code.setValue(""); this.problem.setValue(""); this.who.setValue("out"); }
-    if (action === SAYS) this.say();
-    if (action === ENDS_TALK) this.endTalk();
     if (action === LEAVES) this.leave();
     if (action === OPENS_SETTINGS) this.settingsOpen.setValue(true);
     if (action === CLOSES_SETTINGS) this.settingsOpen.setValue(false);
@@ -149,32 +126,9 @@ class Visit extends Controller {
     await this.enter(() => this.door.enterWithGoogle(credential, nonce));
   }
 
-  async say() {
-    const spirit = this.spirit.read();
-    const said = [...this.messages.read(), { id: this.messages.read().length, from: "seeker", text: this.draft.read().trim() }];
-    this.messages.setValue(said);
-    this.draft.setValue("");
-    this.waiting.setValue(true);
-    const answer = await this.world.say(spirit, said.map(({ from, text }) => ({ from, text })));
-    if (this.spirit.read() !== spirit) return; // closed meanwhile
-    this.waiting.setValue(false);
-    if (answer.error) { this.problem.setValue(answer.error); return; }
-    this.messages.setValue([...said, { id: said.length, from: "spirit", text: answer.reply }]);
-  }
-
-  endTalk() {
-    this.spirit.setValue("");
-    this.messages.setValue([]);
-    this.waiting.setValue(false);
-    const closed = this._closed;
-    this._closed = null;
-    closed?.();
-  }
-
   /** Out first, so nothing starts the world again while it closes; then signed out. */
   async leave() {
     this.who.setValue("out");
-    this.endTalk();
     this.world?.stop();
     this.world = null;
     this.caption.setValue("");
@@ -196,9 +150,6 @@ export class LatentSea extends ChimeApp {
       [SETS_CODE]: ["Code"],
       [ENTERS_WITH_CODE]: ["Enter"],
       [STARTS_OVER]: ["Use another way"],
-      [SETS_DRAFT]: ["Say something"],
-      [SAYS]: ["Say"],
-      [ENDS_TALK]: ["Close"],
       [LEAVES]: ["Leave"],
       [OPENS_SETTINGS]: ["Settings"],
       [CLOSES_SETTINGS]: ["Close"],
@@ -226,8 +177,7 @@ export class LatentSea extends ChimeApp {
           ui.button(LEAVES, { style: "SecondaryButton Leave" }),
           ui.button(OPENS_SETTINGS, { style: "SecondaryButton Cog" }),
           ui.when(visit.settingsOpen, this.settingsPanel(visit)),
-          ui.when(visit.spirit.map((spirit) => spirit !== ""), this.conversation(visit, problem)),
-          ui.when(visit.spirit.map((spirit) => spirit === ""), problem()),
+          problem(),
         ])),
         ui.when(is("checking"), ui.column([ui.text(Phrase.of("The Latent Sea"), "Title")], "Door")),
         ui.when(is("out"), this.door(visit, problem)),
@@ -280,24 +230,7 @@ export class LatentSea extends ChimeApp {
     ], "SettingsPanel");
   }
 
-  conversation(visit, problem) {
-    const ui = this.ui;
-    const line = (message) => ui.when(message.map((made) => made?.from === "seeker"),
-      ui.text(message.map((made) => made?.text ?? ""), "FromSeeker").wraps(),
-      ui.text(message.map((made) => made?.text ?? ""), "FromSpirit").wraps());
-    return ui.column([
-      ui.row([
-        ui.text(ui.bound(() => Phrase.with("The spirit: %s", [visit.spirit.read()])), "TalkTitle"),
-        ui.button(ENDS_TALK, { style: "SecondaryButton" }),
-      ], "TalkHead"),
-      ui.each(visit.messages, line, (made) => made.id, "Said"),
-      ui.when(visit.waiting, ui.text(Phrase.of("…"), "Quiet")),
-      problem(),
-      ui.field(SAYS, "", { changes: SETS_DRAFT, shows: visit.draft, placeholder: Phrase.of("Say something") }).takesFocus(),
-    ], "Talk");
-  }
-
-  probe() { return import("./probe.js?v=8f6b5a6cb574").then((made) => new made.Probe(this)); }
+  probe() { return import("./probe.js?v=2780c1afa36a").then((made) => new made.Probe(this)); }
 
   /** The app mounted: Google's button drawn whenever the door shows; the world started whenever someone is in. */
   mount(element) {
