@@ -21,10 +21,10 @@
 // A front half runs as the page does: it is published by the world's owner
 // only. What it tells the host is a claim (F7); the host decides.
 
-import { Dialogue } from "./dialogue.js?v=61c20b1d6568";
-import { Joysticks, touchScreen } from "./joysticks.js?v=61c20b1d6568";
-import { SEEKER, Speech } from "./speech.js?v=61c20b1d6568";
-import { Walker } from "./walker.js?v=61c20b1d6568";
+import { Dialogue } from "./dialogue.js?v=66ad9acd817e";
+import { Joysticks, touchScreen } from "./joysticks.js?v=66ad9acd817e";
+import { SEEKER, Speech } from "./speech.js?v=66ad9acd817e";
+import { Walker } from "./walker.js?v=66ad9acd817e";
 
 /** The Cache Storage the engine keeps module files in. */
 export const FILES_CACHE = "world-files-v1";
@@ -440,7 +440,6 @@ export class World {
     globalThis.addEventListener?.("keydown", this._keys);
   }
 
-  /** The seeker's setting: dialogue choices offered (true), or every conversation free talk (false). */
   /** The subtitles' text this many times its size at 1 (speech.js TEXT_SIZES): the seeker's setting. */
   setTextSize(size) { this.speech.setSize(size); }
 
@@ -450,6 +449,7 @@ export class World {
     return this._conversing > 0 || !!this.talking || !!speech.offered || speech.typing || !speech.free();
   }
 
+  /** The seeker's setting: dialogue choices offered (true), or every conversation free talk (false). */
   setChoices(on) {
     this.choicesOn = on !== false;
     if (!this.choicesOn) this.speech.withdraw();
@@ -488,6 +488,8 @@ export class World {
 
   /** Talk to the nearest character: its tree, where it is, or free talk without one (or with choices off). With nobody near, call out. */
   talk() {
+    // speaking freely already: Enter is for the line (a blank one ends it)
+    if (this.talking) return false;
     const near = this.listening();
     if (!near) return this.callOut();
     if (!this.choicesOn || !near.dialogue) return this.freeTalk(near);
@@ -556,6 +558,15 @@ export class World {
     return true;
   }
 
+  /** The seeker stops talking freely (rowed out of earshot): their line closed, and back to the tree's choices, if any. */
+  stopTalking() {
+    if (!this.talking && !this.calling && !this.speech.typing) return false;
+    this.calling = false;
+    this.speech.close();
+    this.leaveFreeTalk();
+    return true;
+  }
+
   /** The seeker stops speaking freely: back to the tree's choices, if any. */
   leaveFreeTalk() {
     const character = this.talking;
@@ -581,19 +592,23 @@ export class World {
 
   /** The spirit listening nearest the seeker, within its range, or null. */
   listening() {
-    const seeker = this.walker.position;
     let nearest = null;
     let best = Infinity;
     for (const listener of this.scene?._listeners ?? []) {
-      const at = listener.voice.at;
-      // a character out of sight (hidden, or gone) can't be talked to
-      if (at?.isObject3D && !shown(at)) continue;
-      const point = at?.isObject3D && this.three.Vector3 ? at.getWorldPosition(new this.three.Vector3()) : at;
-      if (!point) continue;
-      const far = Math.hypot(seeker.x - point.x, seeker.z - point.z);
+      const far = this.howFar(listener);
       if (far <= listener.range && far < best) { best = far; nearest = listener; }
     }
     return nearest;
+  }
+
+  /** How far a character is from the seeker, along the ground: Infinity when it is out of sight (hidden, or gone). */
+  howFar(listener) {
+    const at = listener.voice.at;
+    if (at?.isObject3D && !shown(at)) return Infinity;
+    const point = at?.isObject3D && this.three.Vector3 ? at.getWorldPosition(new this.three.Vector3()) : at;
+    if (!point) return Infinity;
+    const seeker = this.walker.position;
+    return Math.hypot(seeker.x - point.x, seeker.z - point.z);
   }
 
   /** What the seeker said freely, answered by the character they speak to: its words come when the server gives them; then the seeker may speak again. */
@@ -714,6 +729,8 @@ export class World {
     this.walker.update(seconds);
     if (!this.cameraTaken) this.walker.aim(this.camera);
     this.scene?._frame(seconds, this.clock);
+    // rowed or walked out of earshot: free talk is over
+    if (this.talking && this.howFar(this.talking) > this.talking.range) this.stopTalking();
     // speaking freely: the seeker's turn again as soon as the floor is free
     if (this._openWhenFree && this.talking && this.speech.free() && this.speech.open()) this._openWhenFree = false;
     this.speech.frame();

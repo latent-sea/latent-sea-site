@@ -7,7 +7,8 @@
 // Under a character's line, once the floor is free, its dialogue choices may
 // wait: numbered, picked with the number keys or a tap. The seeker can also
 // speak freely, typing into the subtitles themselves: no box, their words in
-// their colour as they type, Enter to say them, Escape to stop. While the
+// their colour as they type, Enter to say them, Enter on a blank line to
+// stop. While the
 // seeker types, creatures wait.
 //
 // Which keys do what is the world's: Enter to talk, T to speak freely, the
@@ -72,7 +73,7 @@ export class Speech {
    *   prompts  () -> what the seeker can do now, as [{ label, act }] (shown while the floor is free), or []
    *   spoken   (text) -> the seeker said this, speaking freely
    *   typing   (open) -> the seeker began (true) or stopped (false) typing
-   *   left     () -> the seeker stopped speaking freely (Escape)
+   *   left     () -> the seeker stopped speaking freely (Enter on a blank line)
    *   touch    whether this is a touch screen
    *   pace     characters a second (tests go faster)
    *   wait     (seconds) -> a promise (tests skip the waiting)
@@ -162,7 +163,8 @@ export class Speech {
     this.typing = false;
     if (this.dom) this.dom.line.value = "";
     this.onTyping(false);
-    if (!said) { this.render(); this.pump(); return null; }
+    // a blank line: they've stopped speaking freely
+    if (!said) { this.render(); this.pump(); this.left(); return null; }
     // the seeker had the floor: their line goes before any that waited while they typed
     const line = this.say({ ...SEEKER, seeker: true }, said, { first: true });
     this.spoken(said);
@@ -223,6 +225,7 @@ export class Speech {
     line.type = "text";
     line.maxLength = 300;
     line.setAttribute("aria-label", "Say something");
+    line.placeholder = "Say something";
     line.className = "world-subtitle-line";
     Object.assign(line.style, {
       font: SUBTITLE_FONT, width: "100%", boxSizing: "border-box", padding: "0.1rem 0.8rem", border: "none", background: "transparent",
@@ -239,15 +242,18 @@ export class Speech {
     line.addEventListener("keydown", (event) => {
       event.stopPropagation();
       if (event.key === "Enter") { event.preventDefault(); this.send(line.value); }
-      if (event.key === "Escape") { event.preventDefault(); this.close(); this.left(); }
     });
     line.addEventListener("blur", () => { if (this.typing && !line.value.trim()) { this.close(); this.left(); } });
     // a brief word from the world itself: "Dialogue choices off"
     const note = document.createElement("div");
     Object.assign(note.style, { font: `500 ${sized("0.85rem")}/1.2 system-ui, sans-serif`, color: SEEKER.colour, opacity: "0.75", textShadow: SHADOW, display: "none" });
-    box.append(label, words, line, choices, prompt, note);
+    // how to stop, said under where they type, small
+    const hint = document.createElement("div");
+    hint.textContent = "Enter on a blank line to stop";
+    Object.assign(hint.style, { font: `500 ${sized("0.75rem")}/1.2 system-ui, sans-serif`, color: SEEKER.colour, opacity: "0.6", textShadow: SHADOW, display: "none" });
+    box.append(label, words, line, hint, choices, prompt, note);
     holder.appendChild(box);
-    const made = { box, label, pointer, name, words, line, choices, prompt, note };
+    const made = { box, label, pointer, name, words, line, hint, choices, prompt, note };
     this.position(made.box, this.band);
     made.box.style.setProperty("--world-text", String(this.size));
     return made;
@@ -305,7 +311,7 @@ export class Speech {
     // between lines, they move to where they should be
     if (!this.current && !this.typing && !this.speaking && !this.choosing()) this.settle();
     if (!this.dom) return;
-    const { label, name, words, line, prompt, pointer, choices } = this.dom;
+    const { label, name, words, line, hint, prompt, pointer, choices } = this.dom;
     const now = this.current;
     label.style.display = now || this.typing ? "inline-flex" : "none";
     const who = now?.speaker ?? (this.typing ? SEEKER : null);
@@ -314,6 +320,7 @@ export class Speech {
     words.style.display = now ? "block" : "none";
     if (now) { words.textContent = now.text; words.style.color = now.speaker.colour; }
     line.style.display = this.typing ? "block" : "none";
+    hint.style.display = this.typing ? "block" : "none";
     this.renderChoices(choices);
     this.renderPrompts(prompt);
     this.aim();
