@@ -21,7 +21,8 @@
 // A node may `say` lines; `do` something (with the game: the scene, what was
 // seen and picked, and whatever the scene adds); then `go` to another node,
 // `end`, or offer `choices`. A choice shows only if its `if` holds, and only
-// once if `once` is set. Choices are free: free talk is the one that costs.
+// once if `once` is set. Choices are free: free talk is the one that costs,
+// and it always comes last, wherever the tree puts it.
 //
 // A tree can also be plain JSON (a .json file of the module, scene.json), so
 // it reads like a script: there, `if` is { "seen": "node" } or
@@ -76,14 +77,15 @@ export class Dialogue {
     return { lines, choices: this.choices(), ...signal };
   }
 
-  /** The choices waiting now, those whose conditions hold: { id, reply, free }. */
+  /** The choices waiting now, those whose conditions hold: { id, reply, free }; free talk last. */
   choices() {
     if (!this.at) return [];
     const node = this.node(this.at);
     return (node.choices ?? [])
       .map((choice, index) => ({ choice, id: choice.id ?? `${this.at}:${index}` }))
       .filter(({ choice, id }) => (!choice.once || !this.pickedChoices.has(id)) && this.holds(choice.if))
-      .map(({ choice, id }) => ({ id, reply: choice.free ? (choice.reply ?? FREE_TALK) : String(choice.reply), free: !!choice.free, go: choice.go ?? null, end: !!choice.end }));
+      .map(({ choice, id }) => ({ id, reply: choice.free ? (choice.reply ?? FREE_TALK) : String(choice.reply), free: !!choice.free, go: choice.go ?? null, end: !!choice.end }))
+      .sort((a, b) => Number(a.free) - Number(b.free));
   }
 
   /** Whether a condition holds: a function of the game, or (in JSON) { seen }, { unseen } or { picked }. */

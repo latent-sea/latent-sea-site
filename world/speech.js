@@ -56,6 +56,8 @@ export function shownFor(piece, pace = PACE) {
 }
 
 export const SEEKER = { name: "Seeker", colour: "#f4ead8" };
+/** The colour of a choice's number, and of who speaks. */
+const NUMBER = "#7fd1e8";
 
 /** How big the text is, times its size at 1: the seeker's setting (TEXT_SIZES), twice that unless they change it. */
 export const TEXT_SIZE = 2;
@@ -208,7 +210,8 @@ export class Speech {
       textAlign: "center", pointerEvents: "none", transition: "opacity 200ms ease",
     });
     const label = document.createElement("div");
-    Object.assign(label.style, { display: "inline-flex", alignItems: "center", gap: "0.35rem", font: `700 ${sized("0.8rem")}/1 system-ui, sans-serif`, letterSpacing: "0.08em", textTransform: "uppercase", textShadow: SHADOW });
+    // who speaks: in the same colour and weight as a choice's number, apart from the words
+    Object.assign(label.style, { display: "inline-flex", alignItems: "center", gap: "0.35rem", font: `700 ${sized("clamp(0.95rem, 2.2vw, 1.15rem)")}/1.2 system-ui, sans-serif`, color: NUMBER, textShadow: SHADOW });
     // a triangle pointing up, turned towards whoever speaks
     const pointer = document.createElement("span");
     Object.assign(pointer.style, {
@@ -235,7 +238,7 @@ export class Speech {
     const choices = document.createElement("ol");
     choices.className = "world-choices";
     Object.assign(choices.style, { listStyle: "none", margin: "0.4rem 0 0", padding: "0", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" });
-    // what the seeker can do now: "Enter to talk", "T to speak freely"
+    // what the seeker can do now, on a phone: "Talk", "Speak freely"
     const prompt = document.createElement("div");
     prompt.className = "world-prompts";
     Object.assign(prompt.style, { display: "flex", gap: "0.6rem", justifyContent: "center", pointerEvents: "auto" });
@@ -315,7 +318,7 @@ export class Speech {
     const now = this.current;
     label.style.display = now || this.typing ? "inline-flex" : "none";
     const who = now?.speaker ?? (this.typing ? SEEKER : null);
-    if (who) { name.textContent = who.name; label.style.color = who.colour; }
+    if (who) name.textContent = who.name;
     pointer.style.display = who && !who.seeker && who !== SEEKER ? "inline-block" : "none";
     words.style.display = now ? "block" : "none";
     if (now) { words.textContent = now.text; words.style.color = now.speaker.colour; }
@@ -339,7 +342,12 @@ export class Speech {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "world-choice";
-      button.textContent = `${i + 1}  ${reply}`;
+      // the number in the sea's colour, apart from the words
+      const number = document.createElement("span");
+      number.className = "world-choice-number";
+      number.textContent = String(i + 1);
+      Object.assign(number.style, { color: NUMBER, marginRight: "0.55em", fontWeight: "700" });
+      button.append(number, " ", reply);
       Object.assign(button.style, {
         font: `500 ${sized("clamp(0.95rem, 2.2vw, 1.15rem)")}/1.35 system-ui, sans-serif`, color: SEEKER.colour, opacity: "0.82",
         background: "none", border: "none", padding: "0.15rem 0.6rem", cursor: "pointer", pointerEvents: "auto", textShadow: SHADOW,

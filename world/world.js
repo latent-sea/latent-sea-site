@@ -21,10 +21,10 @@
 // A front half runs as the page does: it is published by the world's owner
 // only. What it tells the host is a claim (F7); the host decides.
 
-import { Dialogue } from "./dialogue.js?v=5acfd9881574";
-import { Joysticks, touchScreen } from "./joysticks.js?v=5acfd9881574";
-import { SEEKER, Speech } from "./speech.js?v=5acfd9881574";
-import { Walker } from "./walker.js?v=5acfd9881574";
+import { Dialogue } from "./dialogue.js?v=e1286f12e781";
+import { Joysticks, touchScreen } from "./joysticks.js?v=e1286f12e781";
+import { SEEKER, Speech } from "./speech.js?v=e1286f12e781";
+import { Walker } from "./walker.js?v=e1286f12e781";
 
 /** The Cache Storage the engine keeps module files in. */
 export const FILES_CACHE = "world-files-v1";
@@ -464,21 +464,26 @@ export class World {
     this.ui.choices?.(on);
   }
 
-  /** What the seeker can do near a character, while the floor is free. */
+  /**
+   * Buttons near a character, while the floor is free: on a phone only,
+   * where they are the way to talk. A computer shows nothing: its keys
+   * (Enter, T, C) are explained in the world itself.
+   */
   prompts() {
+    // (asked while the subtitles are still being made, too)
+    if (!this.speech?.touch) return [];
     const near = this.listening();
     if (!near || this.talking) return [];
-    const touch = this.speech.touch;
     // a phone has no C key: a button turns the choices on and off
-    const toggle = touch && near.dialogue ? [{ label: this.choicesOn ? "Choices: on" : "Choices: off", act: () => this.toggleChoices() }] : [];
+    const toggle = near.dialogue ? [{ label: this.choicesOn ? "Choices: on" : "Choices: off", act: () => this.toggleChoices() }] : [];
     if (this.choicesOn && near.dialogue) {
       return [
-        { label: touch ? "Talk" : "Enter to talk", act: () => this.talk() },
-        { label: touch ? "Speak freely" : "T to speak freely", act: () => this.freeTalk() },
+        { label: "Talk", act: () => this.talk() },
+        { label: "Speak freely", act: () => this.freeTalk() },
         ...toggle,
       ];
     }
-    return [{ label: touch ? "Tap to speak" : "Enter to speak", act: () => this.freeTalk() }, ...toggle];
+    return [{ label: "Tap to speak", act: () => this.freeTalk() }, ...toggle];
   }
 
   /** The seeker's credits to the page: always the total; the cost of a message while they type. */
