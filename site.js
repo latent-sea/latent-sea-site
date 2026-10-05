@@ -12,9 +12,9 @@
 // the developer's machine instead (world/dev/serve.mjs).
 
 import * as THREE from "three";
-import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=16bf1c83d35f";
-import { World } from "./world/world.js?v=16bf1c83d35f";
-import { DevDoor, Door } from "./door.js?v=16bf1c83d35f";
+import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=61c20b1d6568";
+import { World } from "./world/world.js?v=61c20b1d6568";
+import { DEFAULTS, DevDoor, Door, TEXT_SIZES, textSize } from "./door.js?v=61c20b1d6568";
 
 const WORLD = "latent_sea";
 
@@ -28,6 +28,10 @@ const LEAVES = "leaves";
 const OPENS_SETTINGS = "opens_settings";
 const CLOSES_SETTINGS = "closes_settings";
 const INVERTS_Y = "inverts_y";
+const TURNS_CHOICES = "turns_dialogue_choices";
+const SIZES_TEXT = "sizes_text";
+/** What each text size is called, in the settings. */
+const SIZE_NAMES = new Map([[1, "Small"], [1.5, "Medium"], [2, "Large"], [2.5, "Largest"]]);
 const FILLS_SCREEN = "fills_the_screen";
 const HIDES_HINT = "hides_the_hint";
 
@@ -71,7 +75,8 @@ class Visit extends Controller {
     this.busy = this.value(false);
     this.problem = this.value("");
     this.caption = this.value("");
-    this.settings = this.value({ invert_y: false }); // the seeker's own, saved on the platform
+    this.settings = this.value({ ...DEFAULTS }); // the seeker's own, saved on the platform
+    this.credits = this.value(null);     // { free, bought, total, cost, typing }, as the world says
     this.settingsOpen = this.value(false);
     this.canFill = this.value(canFill());
     this.filled = this.value(false);
@@ -91,22 +96,28 @@ class Visit extends Controller {
   worldUi() {
     return {
       show: (words) => this.caption.setValue(String(words ?? "")),
+      credits: (held) => this.credits.setValue(held),
+      // C, or the phone's button: the dialogue choices setting, kept
+      choices: (on) => this.change({ dialogue_choices: on }),
       failed: (words) => this.problem.setValue(String(words)),
     };
   }
 
-  answers() { return [ENTERS_AS_GUEST, SETS_EMAIL, SENDS_CODE, SETS_CODE, ENTERS_WITH_CODE, STARTS_OVER, LEAVES, OPENS_SETTINGS, CLOSES_SETTINGS, INVERTS_Y, FILLS_SCREEN, HIDES_HINT]; }
+  answers() { return [ENTERS_AS_GUEST, SETS_EMAIL, SENDS_CODE, SETS_CODE, ENTERS_WITH_CODE, STARTS_OVER, LEAVES, OPENS_SETTINGS, CLOSES_SETTINGS, INVERTS_Y, TURNS_CHOICES, SIZES_TEXT, FILLS_SCREEN, HIDES_HINT]; }
 
   /** The seeker's settings, as saved, put into effect. */
   async loadSettings() {
     const loaded = await this.door.loadSettings();
     if (!loaded.ok) this.problem.setValue(loaded.error);
-    this.settings.setValue(loaded.settings);
+    this.settings.setValue({ ...DEFAULTS, ...loaded.settings });
     this.applySettings();
   }
 
   applySettings() {
-    if (this.world) this.world.walker.invertY = this.settings.read().invert_y === true;
+    if (!this.world) return;
+    this.world.walker.invertY = this.settings.read().invert_y === true;
+    this.world.setChoices(this.settings.read().dialogue_choices !== false);
+    this.world.setTextSize(this.settings.read().text_size);
   }
 
   /** A setting changed: in effect at once, then saved. */
@@ -137,6 +148,12 @@ class Visit extends Controller {
     if (action === OPENS_SETTINGS) this.settingsOpen.setValue(true);
     if (action === CLOSES_SETTINGS) this.settingsOpen.setValue(false);
     if (action === INVERTS_Y) this.change({ invert_y: !this.settings.read().invert_y });
+    if (action === TURNS_CHOICES) this.change({ dialogue_choices: this.settings.read().dialogue_choices === false });
+    if (action === SIZES_TEXT) {
+      // each press, the next size; after the largest, the smallest
+      const at = TEXT_SIZES.indexOf(textSize(this.settings.read().text_size));
+      this.change({ text_size: TEXT_SIZES[(at + 1) % TEXT_SIZES.length] });
+    }
     if (action === FILLS_SCREEN) { if (filled()) unfill(); else { this.leftFullScreen = false; fill(); } }
     if (action === HIDES_HINT) { remember(HINT_SEEN); this.hint.setValue(false); }
     return null;
@@ -167,7 +184,8 @@ class Visit extends Controller {
     this.caption.setValue("");
     this.problem.setValue("");
     this.settingsOpen.setValue(false);
-    this.settings.setValue({ invert_y: false });
+    this.settings.setValue({ ...DEFAULTS });
+    this.credits.setValue(null);
     await this.door.signOut();
   }
 }
@@ -187,6 +205,8 @@ export class LatentSea extends ChimeApp {
       [OPENS_SETTINGS]: ["Settings"],
       [CLOSES_SETTINGS]: ["Close"],
       [INVERTS_Y]: ["Invert Y"],
+      [TURNS_CHOICES]: ["Dialogue choices"],
+      [SIZES_TEXT]: ["Text size"],
       [FILLS_SCREEN]: ["Full screen"],
       [HIDES_HINT]: ["Got it"],
     });
@@ -212,6 +232,7 @@ export class LatentSea extends ChimeApp {
           ui.button(LEAVES, { style: "SecondaryButton Leave" }),
           ui.button(OPENS_SETTINGS, { style: "SecondaryButton Cog" }),
           ui.when(visit.canFill, ui.button(FILLS_SCREEN, { style: "SecondaryButton Fill" })),
+          ui.when(visit.credits.map((held) => held !== null), this.creditsShown(visit)),
           ui.when(visit.settingsOpen, this.settingsPanel(visit)),
           problem(),
         ])),
@@ -257,20 +278,43 @@ export class LatentSea extends ChimeApp {
     ], "Door");
   }
 
-  /** The seeker's settings: one for now. */
+  /** The seeker's settings. */
   settingsPanel(visit) {
     const ui = this.ui;
     const inverted = visit.settings.map((now) => now.invert_y === true);
+    const choices = visit.settings.map((now) => now.dialogue_choices !== false);
+    const size = visit.settings.map((now) => SIZE_NAMES.get(textSize(now.text_size)));
     return ui.column([
       ui.row([ui.text(Phrase.of("Settings"), "TalkTitle"), ui.button(CLOSES_SETTINGS, { style: "SecondaryButton" })], "TalkHead"),
       ui.pressable(INVERTS_Y, {}, [
         ui.text(ui.words(INVERTS_Y), "SettingName").grow(),
         ui.text(inverted.map((on) => (on ? "On" : "Off")), "SettingState"),
       ], "Setting"),
+      // off, every conversation is free talk: each message uses credits
+      ui.pressable(TURNS_CHOICES, {}, [
+        ui.text(ui.words(TURNS_CHOICES), "SettingName").grow(),
+        ui.text(choices.map((on) => (on ? "On" : "Off: uses credits")), "SettingState"),
+      ], "Setting"),
+      // the subtitles' size: each press, the next
+      ui.pressable(SIZES_TEXT, {}, [
+        ui.text(ui.words(SIZES_TEXT), "SettingName").grow(),
+        ui.text(size, "SettingState"),
+      ], "Setting"),
     ], "SettingsPanel");
   }
 
-  probe() { return import("./probe.js?v=16bf1c83d35f").then((made) => new made.Probe(this)); }
+  /** The seeker's credits, at the top: always the total; the cost of the message while they type one. */
+  creditsShown(visit) {
+    const ui = this.ui;
+    const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
+    return ui.row([
+      ui.text(visit.credits.map((held) => plural(held?.total ?? 0, "credit")), "CreditsTotal"),
+      ui.when(visit.credits.map((held) => held?.typing === true),
+        ui.text(visit.credits.map((held) => `This message: ${plural(held?.cost ?? 0, "credit")}`), "CreditsCost")),
+    ], "Credits");
+  }
+
+  probe() { return import("./probe.js?v=61c20b1d6568").then((made) => new made.Probe(this)); }
 
   /** The app mounted: Google's button drawn whenever the door shows; the world started whenever someone is in. */
   mount(element) {

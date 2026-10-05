@@ -52,3 +52,8 @@ html, body { margin: 0; height: 100%; background: #0b1820; color: #e7eef2; overf
 #app .Setting { width: 100%; justify-content: space-between; }
 #app .SettingState { color: #7fd1e8; font-weight: 600; }
 
+/* the seeker's credits, top right beside Leave: the total always, a message's cost while typing one */
+#app .Credits { position: fixed; z-index: 1; top: 0.75rem; right: calc(0.75rem + 6.2rem); min-height: 44px; flex-direction: column; justify-content: center;
+  align-items: flex-end; gap: 0.2rem; padding: 0.35rem 0.85rem; border-radius: 14px; background: rgba(8, 20, 28, 0.55); color: #e7eef2;
+  font: 600 0.85rem/1.1 system-ui, sans-serif; white-space: nowrap; }
+#app .CreditsCost { color: #7fd1e8; font-weight: 500; font-size: 0.75rem; }

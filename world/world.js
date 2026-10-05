@@ -21,9 +21,10 @@
 // A front half runs as the page does: it is published by the world's owner
 // only. What it tells the host is a claim (F7); the host decides.
 
-import { Joysticks, touchScreen } from "./joysticks.js?v=16bf1c83d35f";
-import { Speech } from "./speech.js?v=16bf1c83d35f";
-import { Walker } from "./walker.js?v=16bf1c83d35f";
+import { Dialogue } from "./dialogue.js?v=61c20b1d6568";
+import { Joysticks, touchScreen } from "./joysticks.js?v=61c20b1d6568";
+import { SEEKER, Speech } from "./speech.js?v=61c20b1d6568";
+import { Walker } from "./walker.js?v=61c20b1d6568";
 
 /** The Cache Storage the engine keeps module files in. */
 export const FILES_CACHE = "world-files-v1";
@@ -96,6 +97,12 @@ export async function importText(text, name) {
 // --- a scene and its toolkit -----------------------------------------------------
 
 /** Everything a Three.js object holds that must be let go: geometries, materials, their textures. */
+/** Whether an object is shown: it and everything it hangs from visible. */
+function shown(object) {
+  for (let at = object; at; at = at.parent) if (at.visible === false) return false;
+  return true;
+}
+
 function dispose(object) {
   object.traverse?.((part) => {
     part.geometry?.dispose?.();
@@ -117,7 +124,8 @@ export class Scene {
     this._undo = [];
     this._updaters = new Set();
     this._reaches = new Set();
-    this._listeners = new Set(); // spirits listening for the seeker: { voice, spirit, range, said }
+    this._listeners = new Set(); // the characters the seeker can talk to: { voice, spirit, range, turns, said, dialogue, free, on }
+    this._calls = [];            // words the seeker may say with nobody near: { pattern, then }
     this._presses = new Map(); // object -> handler
     this._left = false;
   }
@@ -201,6 +209,17 @@ export class Scene {
     return { width: canvas?.width || 1280, height: canvas?.height || 720 };
   }
 
+  /**
+   * Where subtitles go in this scene: "auto" (the calmest part of the
+   * picture, which the engine finds as it plays), or always "top", "middle"
+   * or "bottom". Until the scene ends.
+   */
+  subtitles(where = "auto") {
+    const was = this.world.subtitlesAt;
+    this.world.subtitlesAt = where;
+    this._keep(() => { this.world.subtitlesAt = was; });
+  }
+
   /** The camera, taken from the seeker (a cut scene): they stop moving until it is given back or the scene ends. */
   takeCamera() {
     this.world.walker.paused = true;
@@ -252,17 +271,46 @@ export class Scene {
   }
 
   /**
-   * A spirit this scene uses listens through a voice: what the seeker says
-   * within `range` of it goes to the spirit, on the server, and its answer is
-   * spoken by the voice. Only the page keeps the conversation (H1).
+   * A character the seeker can talk to, within `range` of its voice. With a
+   * dialogue tree (dialogue.js), it talks through the tree's choices, which
+   * are free, and one of them is free talk; without one, or with the seeker's
+   * dialogue choices turned off, the seeker speaks freely. Free talk goes to
+   * `spirit` (a spirit this scene uses), on the server, and costs credits;
+   * its answer is spoken by the voice. Only the page keeps the conversation (H1).
+   *
+   *   const gull = scene.character({ voice, spirit: "gull", tree: talk, range: 6 });
+   *   gull.start();             // it begins the tree (its start node), when the scene says
    */
+  character({ voice, spirit = null, tree = null, range = 4, turns = 20, game = {}, on = {} }) {
+    if (spirit && !this._modules.has(spirit)) throw new Error(`${this.module} doesn't use ${spirit}`);
+    // turns: as many as the spirit's module.json allows (spirit.max_turns); older ones are let go
+    // on: what the tree's signals do ({ leave() {...} }), once their node's lines are said
+    const character = { voice, spirit, range, turns, said: [], dialogue: null, free: false, on };
+    if (tree) character.dialogue = new Dialogue(tree, { scene: this, ...game });
+    this._listeners.add(character);
+    this._keep(() => { this._listeners.delete(character); if (this.world.talking === character) this.world.talking = null; });
+    return {
+      character,
+      /** Plays the tree from `node` (its start, unless named). */
+      start: (node) => this.world.converse(character, node ?? tree?.start),
+    };
+  }
+
+  /**
+   * `then(words)` when the seeker says words matching `pattern` with nobody
+   * near: Enter, then type, as if speaking to the world (it costs nothing).
+   * A name, say, that calls a character back.
+   */
+  onCall(pattern, then) {
+    const call = { pattern, then };
+    this._calls.push(call);
+    this._keep(() => { this._calls = this._calls.filter((c) => c !== call); });
+  }
+
+  /** A spirit that listens through a voice, with no tree: the seeker speaks freely to it. */
   listen(voice, { spirit, range = 4, turns = 20 }) {
     if (!this._modules.has(spirit)) throw new Error(`${this.module} doesn't use ${spirit}`);
-    // turns: as many as the spirit's module.json allows (spirit.max_turns); older ones are let go
-    const listener = { voice, spirit, range, turns, said: [] };
-    this._listeners.add(listener);
-    this._keep(() => this._listeners.delete(listener));
-    return listener;
+    return this.character({ voice, spirit, range, turns }).character;
   }
 
   /**
@@ -310,6 +358,7 @@ export class Scene {
     this._updaters.clear();
     this._reaches.clear();
     this._listeners.clear();
+    this._calls = [];
     this._presses.clear();
   }
 }
@@ -324,7 +373,7 @@ export class World {
    *   files    platformFiles(backend) or devFiles(base)
    *   three    the Three.js namespace
    *   canvas   where it is drawn; without one (or without WebGL) it plays undrawn
-   *   ui       the page's: show(words), failed(words)
+   *   ui       the page's: show(words), failed(words), credits({ free, bought, total, cost, typing })
    *   importer (text, name, path) -> a module; importText in a browser. A
    *            preview loads the file at its path instead (preview/preview.js)
    *   joysticks false to leave out the sticks a touch screen gets (joysticks.js)
@@ -362,13 +411,159 @@ export class World {
       this.joysticks = canvas.parentElement && joysticks ? new Joysticks(this.walker, canvas.parentElement, canvas) : null;
     }
     // speech, as subtitles over the world, one speaker at a time
+    this.choicesOn = true;     // the seeker's setting: dialogue choices, or always free talk
+    this.talking = null;       // the character the seeker is speaking freely to
+    this.credits = null;       // the seeker's credits, as the host last said: { free, bought, total, cost }
+    this._openWhenFree = false;
+    this.subtitlesAt = "auto"; // where the scene wants subtitles: auto, top, middle or bottom
+    this._calm = { next: 0.3, band: null, rival: null, held: 0 };
+    this._conversing = 0;        // trees playing now
     this.speech = new Speech({
       holder: canvas?.parentElement ?? null, touch: touchScreen(),
       where: (speaker) => this.onScreen(speaker.at),
-      heard: () => this.listening() !== null,
+      prompts: () => this.prompts(),
       spoken: (words) => this.answer(words),
+      // the cost shows only while typing to a spirit: calling out to nobody is free
+      typing: (open) => this.showCredits(open && !!this.talking),
+      left: () => { this.calling = false; this.leaveFreeTalk(); },
       ...speech,
     });
+    // the keys to talk: Enter, T to speak freely, the numbers to choose
+    this._keys = (event) => {
+      if (event.repeat || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target?.tagName ?? "")) return;
+      if (event.key === "Enter") { if (this.talk()) event.preventDefault(); return; }
+      if (event.code === "KeyT") { if (this.freeTalk()) event.preventDefault(); return; }
+      if (event.code === "KeyC") { this.toggleChoices(); event.preventDefault(); return; }
+      const digit = /^Digit([1-9])$/.exec(event.code);
+      if (digit && this.speech.choose(Number(digit[1]))) event.preventDefault();
+    };
+    globalThis.addEventListener?.("keydown", this._keys);
+  }
+
+  /** The seeker's setting: dialogue choices offered (true), or every conversation free talk (false). */
+  /** The subtitles' text this many times its size at 1 (speech.js TEXT_SIZES): the seeker's setting. */
+  setTextSize(size) { this.speech.setSize(size); }
+
+  /** Whether a conversation is going on: someone speaking, choices waiting, the seeker typing, or a tree playing. */
+  conversing() {
+    const speech = this.speech;
+    return this._conversing > 0 || !!this.talking || !!speech.offered || speech.typing || !speech.free();
+  }
+
+  setChoices(on) {
+    this.choicesOn = on !== false;
+    if (!this.choicesOn) this.speech.withdraw();
+    else for (const character of this.characters()) if (character.dialogue?.at && !character.free) this.offer(character);
+  }
+
+  /** Dialogue choices turned the other way (C, or the button on a phone): said briefly in the subtitles, and kept as the seeker's setting. */
+  toggleChoices() {
+    const on = !this.choicesOn;
+    this.setChoices(on);
+    this.speech.note(on ? "Dialogue choices on" : "Dialogue choices off · replies use credits");
+    this.ui.choices?.(on);
+  }
+
+  /** What the seeker can do near a character, while the floor is free. */
+  prompts() {
+    const near = this.listening();
+    if (!near || this.talking) return [];
+    const touch = this.speech.touch;
+    // a phone has no C key: a button turns the choices on and off
+    const toggle = touch && near.dialogue ? [{ label: this.choicesOn ? "Choices: on" : "Choices: off", act: () => this.toggleChoices() }] : [];
+    if (this.choicesOn && near.dialogue) {
+      return [
+        { label: touch ? "Talk" : "Enter to talk", act: () => this.talk() },
+        { label: touch ? "Speak freely" : "T to speak freely", act: () => this.freeTalk() },
+        ...toggle,
+      ];
+    }
+    return [{ label: touch ? "Tap to speak" : "Enter to speak", act: () => this.freeTalk() }, ...toggle];
+  }
+
+  /** The seeker's credits to the page: always the total; the cost of a message while they type. */
+  showCredits(typing = false) {
+    if (this.credits) this.ui.credits?.({ ...this.credits, typing });
+  }
+
+  /** Talk to the nearest character: its tree, where it is, or free talk without one (or with choices off). With nobody near, call out. */
+  talk() {
+    const near = this.listening();
+    if (!near) return this.callOut();
+    if (!this.choicesOn || !near.dialogue) return this.freeTalk(near);
+    if (near.dialogue.at) { this.offer(near); return true; }
+    this.converse(near, near.dialogue.tree.start);
+    return true;
+  }
+
+  /** Plays a character's tree from a node: its lines, then on, or its choices, or the end. */
+  async converse(character, node) {
+    if (!character.dialogue || !node) return;
+    this._conversing += 1;
+    try {
+      let step = character.dialogue.enter(node);
+      for (;;) {
+        for (const line of step.lines) await character.voice.say(line);
+        // the script's signal, once its lines are said: the scene makes it happen
+        if (step.signal) character.on?.[step.signal]?.();
+        if (step.go) { step = character.dialogue.enter(step.go); continue; }
+        break;
+      }
+      if (step.choices) this.offer(character);
+    } finally {
+      this._conversing -= 1;
+    }
+  }
+
+  /** A character's waiting choices, under its words, unless the seeker has turned them off or speaks freely. */
+  offer(character) {
+    if (!this.choicesOn || character.free || !this.characters().has(character)) return;
+    const choices = character.dialogue.choices();
+    this.speech.offer(choices.map((c) => c.reply), (i) => this.pick(character, choices[i].id));
+  }
+
+  /** The characters of the scene playing. */
+  characters() { return this.scene?._listeners ?? new Set(); }
+
+  /** The seeker picks a choice: said as their line, then the tree goes on; or free talk. */
+  async pick(character, id) {
+    const next = character.dialogue.pick(id);
+    if (next.free) { this.freeTalk(character); return; }
+    this._conversing += 1;
+    try {
+      await this.speech.say({ ...SEEKER, seeker: true }, next.reply);
+    } finally {
+      this._conversing -= 1;
+    }
+    if (next.go) await this.converse(character, next.go);
+  }
+
+  /** Free talk with a character (the nearest, unless named): the seeker types into the subtitles, as soon as the floor is free. */
+  freeTalk(character = this.listening()) {
+    if (!character) return this.callOut();
+    if (!character.spirit) return false;
+    character.free = true;
+    this.talking = character;
+    this.speech.withdraw();
+    if (!this.speech.open()) this._openWhenFree = true;
+    return true;
+  }
+
+  /** With nobody near: the seeker may say something to the world, if the scene listens for any words (scene.onCall). */
+  callOut() {
+    if (!this.scene?._calls.length || !this.speech.open()) return false;
+    this.calling = true;
+    return true;
+  }
+
+  /** The seeker stops speaking freely: back to the tree's choices, if any. */
+  leaveFreeTalk() {
+    const character = this.talking;
+    this._openWhenFree = false;
+    this.talking = null;
+    if (!character) return;
+    character.free = false;
+    if (character.dialogue?.at) this.offer(character);
   }
 
   /** Where a thing (an object or a point) is on screen, { x, y } from 0 to 1; behind the seeker, pushed to the edge it is nearest. */
@@ -391,6 +586,8 @@ export class World {
     let best = Infinity;
     for (const listener of this.scene?._listeners ?? []) {
       const at = listener.voice.at;
+      // a character out of sight (hidden, or gone) can't be talked to
+      if (at?.isObject3D && !shown(at)) continue;
       const point = at?.isObject3D && this.three.Vector3 ? at.getWorldPosition(new this.three.Vector3()) : at;
       if (!point) continue;
       const far = Math.hypot(seeker.x - point.x, seeker.z - point.z);
@@ -399,19 +596,36 @@ export class World {
     return nearest;
   }
 
-  /** What the seeker said, answered by the spirit listening nearest, if any: its words come when the server gives them. */
+  /** What the seeker said freely, answered by the character they speak to: its words come when the server gives them; then the seeker may speak again. */
   answer(words) {
-    const listener = this.listening();
-    if (!listener) return;
-    listener.said.push({ from: "seeker", text: words });
+    if (this.calling) {
+      this.calling = false;
+      for (const call of [...(this.scene?._calls ?? [])]) if (call.pattern.test(words)) call.then(words);
+      return;
+    }
+    const character = this.talking ?? this.listening();
+    if (!character?.spirit) return;
+    character.said.push({ from: "seeker", text: words });
     // the server takes a conversation of at most so many turns; the oldest go first, so it always begins with the seeker
-    while (listener.said.length > listener.turns * 2 - 1) listener.said.splice(0, 2);
-    const reply = this.say(listener.spirit, listener.said.map(({ from, text }) => ({ from, text }))).then((answered) => {
-      if (answered.error) { this.failed(answered.error); listener.said.pop(); return ""; }
-      listener.said.push({ from: "spirit", text: answered.reply });
+    while (character.said.length > character.turns * 2 - 1) character.said.splice(0, 2);
+    const reply = this.say(character.spirit, character.said.map(({ from, text }) => ({ from, text }))).then((answered) => {
+      if (answered.credits) { this.credits = answered.credits; this.showCredits(false); }
+      if (answered.error) {
+        character.said.pop();
+        this.failed(answered.noCredits ? "You have no credits left for free talk." : answered.error);
+        if (answered.noCredits) this.leaveFreeTalk();
+        return "";
+      }
+      character.said.push({ from: "spirit", text: answered.reply });
       return answered.reply;
     });
-    listener.voice.say(reply);
+    character.voice.say(reply).then(() => { if (this.talking === character) this._openWhenFree = true; });
+  }
+
+  /** The seeker's credits, as the host says: shown at once. */
+  async loadCredits() {
+    const asked = await this.host.ask({ action: "credits", world: this.name });
+    if (asked.ok && asked.body.credits) { this.credits = asked.body.credits; this.showCredits(false); }
   }
 
   /** Where the seeker is: asked of the host, then played. */
@@ -420,6 +634,7 @@ export class World {
     if (!asked.ok) throw new Error(asked.error || "the world can't be entered now");
     await this.play(asked.body);
     this.start();
+    this.loadCredits().catch(() => {});
     return asked.body.scene;
   }
 
@@ -435,8 +650,9 @@ export class World {
   /** A spirit's reply to the conversation so far: { reply, resting }, or { error }. */
   async say(spirit, messages) {
     const asked = await this.host.ask({ action: "say", world: this.name, spirit, messages });
-    if (!asked.ok) return { error: asked.error || "the spirit can't be reached" };
-    return { reply: String(asked.body.reply ?? ""), resting: asked.body.resting === true };
+    const credits = asked.body?.credits ?? null;
+    if (!asked.ok) return { error: asked.error || "the spirit can't be reached", noCredits: asked.status === 402, credits };
+    return { reply: String(asked.body.reply ?? ""), resting: asked.body.resting === true, credits };
   }
 
   /** The front half of a module at a version, imported once. */
@@ -498,6 +714,8 @@ export class World {
     this.walker.update(seconds);
     if (!this.cameraTaken) this.walker.aim(this.camera);
     this.scene?._frame(seconds, this.clock);
+    // speaking freely: the seeker's turn again as soon as the floor is free
+    if (this._openWhenFree && this.talking && this.speech.free() && this.speech.open()) this._openWhenFree = false;
     this.speech.frame();
     this._showAim();
     if (this.renderer) {
@@ -510,7 +728,72 @@ export class World {
         this.camera.updateProjectionMatrix();
       }
       this.renderer.render(this.stage, this.camera);
+      this.placeSubtitles(seconds);
     }
+  }
+
+  /**
+   * Subtitles where the picture is calmest: a few times a second, the frame
+   * just drawn, shrunk to a few pixels, is scored band by band (top, middle,
+   * bottom) by how bright and how busy it is. They move to another band only
+   * once it has been clearly calmer for a moment, and only between
+   * conversations: one stays where it began.
+   * A scene may fix them instead (scene.subtitles).
+   */
+  placeSubtitles(seconds) {
+    if (this.subtitlesAt !== "auto") { this.speech.placeAt(this.subtitlesAt); return; }
+    const calm = this._calm;
+    // a conversation stays where it began: the subtitles move only between conversations
+    if (this.conversing()) {
+      this.speech.wanted = this.speech.band;
+      Object.assign(calm, { band: this.speech.band, rival: null, held: 0 });
+      return;
+    }
+    calm.next -= seconds;
+    if (calm.next > 0 || typeof document === "undefined") return;
+    calm.next = 0.4;
+    const scores = this.bandScores();
+    if (!scores) return;
+    const best = Object.keys(scores).reduce((a, b) => (scores[a] <= scores[b] ? a : b));
+    if (!calm.band) { calm.band = best; this.speech.placeAt(best); return; }
+    if (best === calm.band || scores[best] > scores[calm.band] * 0.7 - 4) { calm.rival = null; calm.held = 0; return; }
+    if (calm.rival !== best) { calm.rival = best; calm.held = 0; }
+    calm.held += 0.4;
+    if (calm.held >= 1.6) { calm.band = best; calm.rival = null; calm.held = 0; this.speech.placeAt(best); }
+  }
+
+  /** How bright and busy each band of the frame just drawn is: { top, middle, bottom }, lower is calmer. */
+  bandScores() {
+    const W = 32;
+    const H = 18;
+    this._shrunk ??= Object.assign(document.createElement("canvas"), { width: W, height: H });
+    const pen = this._shrunk.getContext("2d", { willReadFrequently: true });
+    try {
+      pen.drawImage(this.renderer.domElement, 0, 0, W, H);
+    } catch {
+      return null;
+    }
+    const { data } = pen.getImageData(0, 0, W, H);
+    const light = (x, y) => { const i = (y * W + x) * 4; return 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2]; };
+    // each band: rows of the frame, leaving out the row of buttons along the top
+    const bands = { top: [0.1, 0.38], middle: [0.36, 0.64], bottom: [0.62, 0.92] };
+    const scores = {};
+    for (const [band, [from, to]] of Object.entries(bands)) {
+      let sum = 0;
+      let busy = 0;
+      let n = 0;
+      for (let y = Math.floor(from * H); y < Math.ceil(to * H); y++) {
+        for (let x = 0; x < W; x++) {
+          const l = light(x, y);
+          sum += l;
+          if (x > 0) busy += Math.abs(l - light(x - 1, y));
+          if (y > 0) busy += Math.abs(l - light(x, y - 1));
+          n++;
+        }
+      }
+      scores[band] = sum / n + 1.2 * (busy / n);
+    }
+    return scores;
   }
 
   /** The aim: a small ring in the middle of the world, brighter over something that can be pressed. */
@@ -579,6 +862,7 @@ export class World {
     this.joysticks?.stop();
     this.aim?.remove();
     this.speech.stop();
+    globalThis.removeEventListener?.("keydown", this._keys);
     this.renderer?.dispose();
   }
 }

@@ -4,8 +4,8 @@
 // storage, or, opened with ?dev, the developer's machine (world/dev/serve.mjs).
 // Every answer is { ok, error }.
 
-import { Backend } from "./backend/backend.js?v=16bf1c83d35f";
-import { devFiles, devHost, platformFiles, platformHost } from "./world/world.js?v=16bf1c83d35f";
+import { Backend } from "./backend/backend.js?v=61c20b1d6568";
+import { devFiles, devHost, platformFiles, platformHost } from "./world/world.js?v=61c20b1d6568";
 
 // public: the platform's address, its publishable key, and the Google client the platform accepts
 const PLATFORM = "https://api.latent-sea.com";
@@ -42,14 +42,14 @@ export class Door {
 
   /** The seeker's settings, as saved on the platform (backend.sql), or the defaults: { ok, settings, error }. */
   async loadSettings() {
-    const reply = await this.backend.select("latent_sea_settings", "select=invert_y");
+    const reply = await this.backend.select("latent_sea_settings", "select=invert_y,dialogue_choices,text_size");
     if (!reply.ok) return { ...answer(reply), settings: { ...DEFAULTS } };
     return { ok: true, error: "", settings: { ...DEFAULTS, ...(reply.data[0] ?? {}) } };
   }
 
   /** The seeker's settings saved: their row made the first time, changed after. */
   async saveSettings(settings) {
-    const changes = { invert_y: !!settings.invert_y, updated_at: new Date().toISOString() };
+    const changes = { invert_y: !!settings.invert_y, dialogue_choices: settings.dialogue_choices !== false, text_size: textSize(settings.text_size), updated_at: new Date().toISOString() };
     const changed = await this.backend.update("latent_sea_settings", `seeker=eq.${encodeURIComponent(this.backend.playerId())}`, changes);
     if (changed.ok && Array.isArray(changed.data) && changed.data.length) return answer(changed);
     if (!changed.ok) return answer(changed);
@@ -62,7 +62,15 @@ export class Door {
 }
 
 /** What a seeker's settings are until they change them. */
-export const DEFAULTS = { invert_y: false };
+export const DEFAULTS = { invert_y: false, dialogue_choices: true, text_size: 2 };
+
+/** The text sizes a seeker may choose: times the subtitles' size at 1. */
+export const TEXT_SIZES = [1, 1.5, 2, 2.5];
+
+/** One of the text sizes, or the default. */
+export function textSize(size) {
+  return TEXT_SIZES.includes(Number(size)) ? Number(size) : DEFAULTS.text_size;
+}
 
 /** Dev mode: no one signs in; the world comes from the dev server, every module granted; settings kept for the visit. */
 export class DevDoor {
