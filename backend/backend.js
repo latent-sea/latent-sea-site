@@ -5,7 +5,7 @@
 // a game and a site. The platform is Supabase; this speaks its sign-in
 // (GoTrue), data (PostgREST) and live (Realtime, Phoenix channels) protocols.
 //
-//     import { Backend } from "./backend/backend.js?v=e1286f12e781";
+//     import { Backend } from "./backend/backend.js?v=4e624fa2e894";
 //
 //     const backend = new Backend(URL, PUBLISHABLE_KEY);
 //     await backend.restore();                       // whoever signed in last time, if anyone
@@ -172,6 +172,19 @@ export class Backend extends Speaker {
    */
   async signInWithGoogleToken(idToken, nonce = "") {
     const body = { provider: "google", id_token: idToken };
+    if (nonce) body.nonce = nonce;
+    return this._startSession(await this._auth("POST", "/token?grant_type=id_token", body));
+  }
+
+  /**
+   * The signed-in visitor's Google account, from Google's ID token as above:
+   * afterwards Google alone signs in as them. A guest who links stays the
+   * same player, and is a guest no more; a Google account that is already
+   * another player's is refused.
+   */
+  async linkGoogleToken(idToken, nonce = "") {
+    if (!this.isSignedIn()) return new Reply(401, null, "Sign in first, then link Google");
+    const body = { provider: "google", id_token: idToken, link_identity: true };
     if (nonce) body.nonce = nonce;
     return this._startSession(await this._auth("POST", "/token?grant_type=id_token", body));
   }
