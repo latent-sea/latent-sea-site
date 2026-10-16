@@ -5,7 +5,7 @@
 // a game and a site. The platform is Supabase; this speaks its sign-in
 // (GoTrue), data (PostgREST) and live (Realtime, Phoenix channels) protocols.
 //
-//     import { Backend } from "./backend/backend.js?v=4e624fa2e894";
+//     import { Backend } from "./backend/backend.js?v=0ef7d2e1e881";
 //
 //     const backend = new Backend(URL, PUBLISHABLE_KEY);
 //     await backend.restore();                       // whoever signed in last time, if anyone
@@ -24,8 +24,9 @@
 // live channels alike. Where storage is refused (a private window), it is
 // kept for this visit only.
 //
-// Deliberately absent: file storage, presence, and Steam (a game's, not a
-// site's).
+// Files are pictures only: public ones (uploadPicture) and private ones
+// (uploadPrivatePicture). Deliberately absent: other file storage, presence,
+// and Steam (a game's, not a site's).
 
 /** A session is refreshed when it has less than this long left, in seconds. */
 export const REFRESH_MARGIN = 60;
@@ -311,6 +312,47 @@ export class Backend extends Speaker {
 
   /** Where anyone sees a picture kept in the pictures bucket, by its path there. */
   pictureAddress(path) { return `${this.url}/storage/v1/object/public/pictures/${encodeURI(path)}`; }
+
+  /**
+   * A picture kept privately (platform/sql/private_pictures.sql, D-022): in
+   * the app's folder, in the signed-in player's own, by its name there
+   * ("memory-1.jpg"), replacing one of the same name. No one else sees it
+   * unless the app's own tables say so. Answers { path }, its path in the
+   * bucket, which the app keeps and asks addresses for.
+   */
+  async uploadPrivatePicture(app, name, file) {
+    if (!this.isSignedIn()) return new Reply(401, null, "Sign in to upload a picture");
+    if (this._refreshing || this._expiring()) await this.refresh();
+    const path = `${app}/${this.playerId()}/${name}`;
+    const headers = { apikey: this.key, Authorization: `Bearer ${this.session.access_token}`, "Content-Type": file.type || "application/octet-stream", "x-upsert": "true" };
+    const { status, text } = await this.transport("POST", `${this.url}/storage/v1/object/private_pictures/${encodeURI(path)}`, headers, file);
+    let parsed = null;
+    if (text) { try { parsed = JSON.parse(text); } catch { parsed = text; } }
+    if (status < 200 || status >= 300) return new Reply(status, parsed);
+    return new Reply(status, { path });
+  }
+
+  /**
+   * Addresses that show private pictures, by their paths, good for so many
+   * seconds: { path: address }. The platform signs only those the signed-in
+   * player may see; any other is left out.
+   */
+  async privatePictureAddresses(paths, seconds = 3600) {
+    if (!paths.length) return new Reply(200, {});
+    const reply = await this._call("POST", `${this.url}/storage/v1/object/sign/private_pictures`, { expiresIn: seconds, paths });
+    if (!reply.ok) return reply;
+    const addresses = {};
+    for (const signed of Array.isArray(reply.data) ? reply.data : []) {
+      if (signed && signed.signedURL && !signed.error) addresses[signed.path] = encodeURI(`${this.url}/storage/v1${signed.signedURL}`);
+    }
+    return new Reply(reply.status, addresses);
+  }
+
+  /** Private pictures of the signed-in player's removed, by their paths. */
+  removePrivatePictures(paths) {
+    if (!paths.length) return Promise.resolve(new Reply(200, []));
+    return this._call("DELETE", `${this.url}/storage/v1/object/private_pictures`, { prefixes: paths });
+  }
 
   _rest(table, query) { return `${this.url}/rest/v1/${encodeURIComponent(table)}${query ? `?${query}` : ""}`; }
 
