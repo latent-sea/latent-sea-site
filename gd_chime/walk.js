@@ -90,13 +90,14 @@ export class Walk {
     await this.frames(1);
   }
 
-  /** Choose a file for a file button's action, as the device's picker would hand it over. */
+  /** Choose a file (or several, as a list) for a file button's action, as the device's picker would hand it over. */
   async chooseFile(action, file) {
     const input = [...this.root().querySelectorAll(`input[type=file][data-action="${CSS.escape(action)}"]`)].find((part) => this.visible(part.parentElement));
     this.claim(`there is a file to choose for ${action}`, !!input);
     if (!input) return;
     const handed = new DataTransfer();
-    handed.items.add(file);
+    // a file, or several chosen at once
+    for (const one of Array.isArray(file) ? file : [file]) handed.items.add(one);
     input.files = handed.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
     await this.frames(2);
