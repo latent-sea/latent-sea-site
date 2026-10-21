@@ -5,7 +5,7 @@
 // Google"). The page's address must be an authorised JavaScript origin of
 // the Google client, in the Google Cloud console.
 //
-//     import { drawGoogleButton } from "./backend/google.js?v=76b08d341f67";
+//     import { drawGoogleButton } from "./backend/google.js?v=2253c8321fef";
 //     await drawGoogleButton(element, CLIENT_ID, (credential, nonce) => backend.signInWithGoogleToken(credential, nonce));
 
 /**
@@ -31,25 +31,32 @@ export async function drawGoogleButton(element, clientId, signedIn, look = {}) {
 const KEPT = "google-sign-in";
 const PHONE = () => globalThis.matchMedia?.("(pointer: coarse)").matches ?? false;
 
-/** Google's button, or on a phone a button that goes to Google and back: pressed and signed in, signedIn(credential, nonce) as Google answers - on a phone, as the page opens again (takeGoogleRedirect). */
-export async function drawSignIn(element, clientId, signedIn, look = {}, words = "Sign in with Google") {
+/**
+ * Google's button, or on a phone a button that goes to Google and back:
+ * pressed and signed in, signedIn(credential, nonce) as Google answers - on
+ * a phone, as the page opens again (takeGoogleRedirect). via, if given, is
+ * another page Google already knows to send people back to, which hands
+ * the answer on to this one (relayGoogleAnswer): { address, as }.
+ */
+export async function drawSignIn(element, clientId, signedIn, look = {}, words = "Sign in with Google", via = null) {
   if (!PHONE()) return drawGoogleButton(element, clientId, signedIn, look);
   element.replaceChildren();
   const button = document.createElement("button");
   button.type = "button";
   button.className = "google-redirect";
   button.textContent = words;
-  button.addEventListener("click", () => goToGoogle(clientId));
+  button.addEventListener("click", () => goToGoogle(clientId, location.hash, via));
   element.append(button);
 }
 
-/** To Google in this tab, to come back to this page as it is now, signed in. */
-export async function goToGoogle(clientId, back = location.hash) {
+/** To Google in this tab, to come back to this page as it is now, signed in: straight back, or through via ({ address, as }), which hands the answer on. */
+export async function goToGoogle(clientId, back = location.hash, via = null) {
   const nonce = randomWords();
-  const state = randomWords();
+  // an answer coming back through another page says, before its first ".", whose it is
+  const state = via ? `${via.as}.${randomWords()}` : randomWords();
   try { sessionStorage.setItem(KEPT, JSON.stringify({ nonce, state, back })); } catch { /* without it the answer can't be checked, and is refused */ }
   const asked = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  const said = { client_id: clientId, redirect_uri: location.origin + location.pathname, response_type: "id_token", scope: "openid email profile", nonce: await sha256(nonce), state, prompt: "select_account" };
+  const said = { client_id: clientId, redirect_uri: via ? via.address : location.origin + location.pathname, response_type: "id_token", scope: "openid email profile", nonce: await sha256(nonce), state, prompt: "select_account" };
   for (const [name, value] of Object.entries(said)) asked.searchParams.set(name, value);
   location.assign(asked.href);
 }
@@ -60,6 +67,7 @@ export async function goToGoogle(clientId, back = location.hash) {
  * didn't come from Google. The address is put back as it was before.
  */
 export function takeGoogleRedirect() {
+  if (relayed) return null; // another page's answer, handed on: this page neither takes it nor touches what was kept for it
   const said = new URLSearchParams(location.hash.slice(1));
   if (!said.has("id_token") && !(said.has("error") && said.has("state"))) return null;
   let kept = null;
@@ -68,6 +76,31 @@ export function takeGoogleRedirect() {
   if (said.get("error")) return { error: said.get("error") === "access_denied" ? "Sign-in was cancelled." : "Google couldn't sign you in. Please try again." };
   if (!kept || said.get("state") !== kept.state) return { error: "The sign-in didn't come back as sent. Please try again." };
   return { credential: said.get("id_token"), nonce: kept.nonce };
+}
+
+// SIGNING IN THROUGH ANOTHER PAGE: Google sends people back only to the
+// addresses its client lists. A page not listed yet signs in through one
+// that is, on the same site (the same origin, so what goToGoogle kept is
+// there when it comes back): it goes with via, and the listed page, as it
+// opens, hands Google's answer on - before anything of its own reads it.
+let relayed = false;
+
+/**
+ * On a page others sign in through: Google's answer for one of them (its
+ * state says whose, before its first ".") is handed on to that page's own
+ * address, from destinations ({ as: address }), and true is said; else
+ * false, and this page signs in as it would.
+ */
+export function relayGoogleAnswer(destinations) {
+  const said = new URLSearchParams(location.hash.slice(1));
+  if (!said.has("state") || !(said.has("id_token") || said.has("error"))) return false;
+  const whose = said.get("state").split(".")[0];
+  if (!said.get("state").includes(".") || !Object.hasOwn(destinations, whose)) return false;
+  const address = new URL(destinations[whose], location.href);
+  if (address.origin !== location.origin) return false; // only on to the same site, where its sign-in was kept
+  relayed = true;
+  location.replace(address.origin + address.pathname + location.hash);
+  return true;
 }
 
 let loading = null;
