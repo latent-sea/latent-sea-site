@@ -5,7 +5,7 @@
 // Google"). The page's address must be an authorised JavaScript origin of
 // the Google client, in the Google Cloud console.
 //
-//     import { drawGoogleButton } from "./backend/google.js?v=2253c8321fef";
+//     import { drawGoogleButton } from "./backend/google.js?v=cac74c5cf902";
 //     await drawGoogleButton(element, CLIENT_ID, (credential, nonce) => backend.signInWithGoogleToken(credential, nonce));
 
 /**

@@ -5,7 +5,7 @@
 // a game and a site. The platform is Supabase; this speaks its sign-in
 // (GoTrue), data (PostgREST) and live (Realtime, Phoenix channels) protocols.
 //
-//     import { Backend } from "./backend/backend.js?v=2253c8321fef";
+//     import { Backend } from "./backend/backend.js?v=cac74c5cf902";
 //
 //     const backend = new Backend(URL, PUBLISHABLE_KEY);
 //     await backend.restore();                       // whoever signed in last time, if anyone
@@ -192,6 +192,56 @@ export class Backend extends Speaker {
 
   /** A session made elsewhere - by a platform function - becomes this one. */
   async useSession(made) { return this._startSession(new Reply(200, made)); }
+
+  // --- a second factor: an authenticator app's codes ------------------------------
+
+  /**
+   * How surely the visitor is known this session: "aal2" once an
+   * authenticator's code was given, "aal1" with the first sign-in alone, ""
+   * when nobody is signed in. Read from the access token, which the platform signed.
+   */
+  assurance() {
+    if (!this.isSignedIn()) return "";
+    try {
+      const part = String(this.session.access_token).split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      return String(JSON.parse(atob(part.padEnd(part.length + ((4 - (part.length % 4)) % 4), "=")))?.aal ?? "");
+    } catch {
+      return "";
+    }
+  }
+
+  /** The authenticator apps set up on this account, as [{ id, friendly_name, status }]: "verified" once its first code was given. */
+  async authenticators() {
+    const reply = await this._auth("GET", "/user", null);
+    if (!reply.ok) return reply;
+    return new Reply(reply.status, (reply.data?.factors ?? []).filter((f) => f.factor_type === "totp"));
+  }
+
+  /**
+   * Set up an authenticator app: answers { id, totp: { qr_code, secret, uri, picture } } -
+   * picture, an address of the code to scan an image can show (the platform
+   * answers its SVG as text, qr_code), or the secret typed in instead. It
+   * counts once its first code is given (verifyAuthenticator).
+   */
+  async enrolAuthenticator(name) {
+    if (!this.isSignedIn()) return new Reply(401, null, "Sign in first");
+    const reply = await this._auth("POST", "/factors", { factor_type: "totp", friendly_name: name });
+    const svg = reply.ok ? String(reply.data?.totp?.qr_code ?? "") : "";
+    if (svg) reply.data.totp.picture = svg.startsWith("data:") ? svg : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    return reply;
+  }
+
+  /** An authenticator's six-digit code: this session is raised to aal2 (and a new one verified). */
+  async verifyAuthenticator(factorId, code) {
+    if (!this.isSignedIn()) return new Reply(401, null, "Sign in first");
+    const at = `/factors/${encodeURIComponent(factorId)}`;
+    const challenge = await this._auth("POST", `${at}/challenge`, {});
+    if (!challenge.ok || !challenge.data?.id) return challenge.ok ? new Reply(500, challenge.data, "The server didn't set a challenge") : challenge;
+    return this._startSession(await this._auth("POST", `${at}/verify`, { challenge_id: challenge.data.id, code: String(code).trim() }));
+  }
+
+  /** An authenticator taken off the account: asked with aal2, so a stolen first sign-in can't remove it. */
+  removeAuthenticator(factorId) { return this._auth("DELETE", `/factors/${encodeURIComponent(factorId)}`, null); }
 
   /**
    * A fresh access token for the session, before the old one runs out. One at
