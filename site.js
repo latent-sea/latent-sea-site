@@ -12,9 +12,9 @@
 // the developer's machine instead (world/dev/serve.mjs).
 
 import * as THREE from "three";
-import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=cac74c5cf902";
-import { World } from "./world/world.js?v=cac74c5cf902";
-import { DEFAULTS, DevDoor, Door, TEXT_SIZES, textSize } from "./door.js?v=cac74c5cf902";
+import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=b6f4b7aa453d";
+import { World } from "./world/world.js?v=b6f4b7aa453d";
+import { DEFAULTS, DevDoor, Door, TEXT_SIZES, textSize } from "./door.js?v=b6f4b7aa453d";
 
 const WORLD = "latent_sea";
 
@@ -131,7 +131,7 @@ class Visit extends Controller {
   would(action) {
     if ([ENTERS_AS_GUEST, SENDS_CODE, ENTERS_WITH_CODE].includes(action) && this.busy.read()) return Phrase.of("Opening the way");
     if (action === SENDS_CODE && !EMAIL.test(this.email.read().trim())) return Phrase.of("Type your email address");
-    if (action === ENTERS_WITH_CODE && !/^\d{6}$/.test(this.code.read().trim())) return Phrase.of("Type the six-digit code from the email");
+    if (action === ENTERS_WITH_CODE && !/^\d{6,10}$/.test(this.code.read().trim())) return Phrase.of("Type the code from the email");
     return null;
   }
 
@@ -268,7 +268,7 @@ export class LatentSea extends ChimeApp {
     const ui = this.ui;
     return ui.column([
       ui.text(Phrase.of("The Latent Sea"), "Title"),
-      ui.text(ui.bound(() => Phrase.with("A six-digit code is on its way to %s.", [visit.email.read().trim()])), "Lead").wraps(),
+      ui.text(ui.bound(() => Phrase.with("A code is on its way to %s.", [visit.email.read().trim()])), "Lead").wraps(),
       ui.column([
         ui.field(SETS_CODE, "", { label: Phrase.of("Code"), changes: SETS_CODE, shows: visit.code, kind: "text", autocomplete: "one-time-code" }),
         ui.button(ENTERS_WITH_CODE),
@@ -314,7 +314,7 @@ export class LatentSea extends ChimeApp {
     ], "Credits");
   }
 
-  probe() { return import("./probe.js?v=cac74c5cf902").then((made) => new made.Probe(this)); }
+  probe() { return import("./probe.js?v=b6f4b7aa453d").then((made) => new made.Probe(this)); }
 
   /** The app mounted: Google's button drawn whenever the door shows; the world started whenever someone is in. */
   mount(element) {

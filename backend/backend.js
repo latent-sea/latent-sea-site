@@ -5,7 +5,7 @@
 // a game and a site. The platform is Supabase; this speaks its sign-in
 // (GoTrue), data (PostgREST) and live (Realtime, Phoenix channels) protocols.
 //
-//     import { Backend } from "./backend/backend.js?v=cac74c5cf902";
+//     import { Backend } from "./backend/backend.js?v=b6f4b7aa453d";
 //
 //     const backend = new Backend(URL, PUBLISHABLE_KEY);
 //     await backend.restore();                       // whoever signed in last time, if anyone
@@ -157,7 +157,7 @@ export class Backend extends Speaker {
     return this._startSession(await this._auth("POST", "/signup", withCaptcha({}, captchaToken)));
   }
 
-  /** Step 1 of signing in by email: a six-digit code is emailed to this address. */
+  /** Step 1 of signing in by email: a code (ten digits) is emailed to this address. */
   async requestCode(email, captchaToken = "") {
     return this._auth("POST", "/otp", withCaptcha({ email, create_user: true }, captchaToken));
   }
