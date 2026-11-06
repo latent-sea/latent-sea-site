@@ -5,7 +5,7 @@
 // a game and a site. The platform is Supabase; this speaks its sign-in
 // (GoTrue), data (PostgREST) and live (Realtime, Phoenix channels) protocols.
 //
-//     import { Backend } from "./backend/backend.js?v=b6f4b7aa453d";
+//     import { Backend } from "./backend/backend.js?v=6888cdfb3da5";
 //
 //     const backend = new Backend(URL, PUBLISHABLE_KEY);
 //     await backend.restore();                       // whoever signed in last time, if anyone
@@ -36,6 +36,8 @@ export const HEARTBEAT = 25;
 export const RECONNECT_WAITS = [1, 2, 5, 10, 30];
 /** How long a request may take before it counts as unanswered, in seconds. */
 export const TIMEOUT = 20;
+/** At most how many private pictures' addresses are asked for at once (platform/functions/sign-pictures). */
+export const SIGNED_AT_ONCE = 300;
 
 /** What a call answers. */
 export class Reply {
@@ -385,10 +387,34 @@ export class Backend extends Speaker {
   /**
    * Addresses that show private pictures, by their paths, good for so many
    * seconds: { path: address }. The platform signs only those the signed-in
-   * player may see; any other is left out.
+   * player may see; any other is left out. Asked of the platform's
+   * sign-pictures function, which asks each app's rule once for them all
+   * (SIGNED_AT_ONCE at a time); of storage's own signing, which asks it of
+   * each picture, where the platform doesn't have that function yet.
    */
   async privatePictureAddresses(paths, seconds = 3600) {
-    if (!paths.length) return new Reply(200, {});
+    const addresses = {};
+    for (let at = 0; at < paths.length; at += SIGNED_AT_ONCE) {
+      const some = paths.slice(at, at + SIGNED_AT_ONCE);
+      let reply = await this._call("POST", `${this.url}/functions/v1/sign-pictures`, { paths: some, expires_in: seconds });
+      // not there yet: 404, or 500 from self-hosted Supabase's router; or an answer the page may not read
+      if (reply.status === 404 || reply.status === 500 || reply.status === 0) {
+        reply = await this._signedByStorage(some, seconds);
+      } else if (reply.ok) {
+        const signed = {};
+        for (const [path, address] of Object.entries(reply.data && typeof reply.data === "object" ? reply.data : {})) {
+          if (typeof address === "string" && address.startsWith("/storage/v1/")) signed[path] = encodeURI(`${this.url}${address}`);
+        }
+        reply = new Reply(reply.status, signed);
+      }
+      if (!reply.ok) return reply;
+      Object.assign(addresses, reply.data);
+    }
+    return new Reply(200, addresses);
+  }
+
+  // Storage's own signing, which asks the bucket's row rule of each picture (D-022): before sign-pictures is deployed.
+  async _signedByStorage(paths, seconds) {
     const reply = await this._call("POST", `${this.url}/storage/v1/object/sign/private_pictures`, { expiresIn: seconds, paths });
     if (!reply.ok) return reply;
     const addresses = {};
