@@ -15,10 +15,10 @@
 // The four commands are for code and the console; a button never declares
 // one - it navigates by where its action goes (performs).
 
-import { Chimes } from "./chimes.js?v=455a2f5d1398";
-import { Controller } from "./controller.js?v=455a2f5d1398";
-import { Phrase } from "./phrase.js?v=455a2f5d1398";
-import { Reads } from "./reads.js?v=455a2f5d1398";
+import { Chimes } from "./chimes.js?v=f2995feed329";
+import { Controller } from "./controller.js?v=f2995feed329";
+import { Phrase } from "./phrase.js?v=f2995feed329";
+import { Reads } from "./reads.js?v=f2995feed329";
 
 const HISTORY_CAP = 50;
 

@@ -21,10 +21,10 @@
 // A front half runs as the page does: it is published by the world's owner
 // only. What it tells the host is a claim (F7); the host decides.
 
-import { Dialogue } from "./dialogue.js?v=455a2f5d1398";
-import { Joysticks, touchScreen } from "./joysticks.js?v=455a2f5d1398";
-import { SEEKER, Speech } from "./speech.js?v=455a2f5d1398";
-import { Walker } from "./walker.js?v=455a2f5d1398";
+import { Dialogue } from "./dialogue.js?v=f2995feed329";
+import { Joysticks, touchScreen } from "./joysticks.js?v=f2995feed329";
+import { SEEKER, Speech } from "./speech.js?v=f2995feed329";
+import { Walker } from "./walker.js?v=f2995feed329";
 
 /** The Cache Storage the engine keeps module files in. */
 export const FILES_CACHE = "world-files-v1";
