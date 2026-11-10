@@ -12,9 +12,9 @@
 // the developer's machine instead (world/dev/serve.mjs).
 
 import * as THREE from "three";
-import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=f2995feed329";
-import { World } from "./world/world.js?v=f2995feed329";
-import { DEFAULTS, DevDoor, Door, TEXT_SIZES, textSize } from "./door.js?v=f2995feed329";
+import { ChimeApp, Chimes, Controller, Look, Phrase } from "./gd_chime/gd_chime.js?v=db4a5c5200a1";
+import { World } from "./world/world.js?v=db4a5c5200a1";
+import { DEFAULTS, DevDoor, Door, TEXT_SIZES, textSize } from "./door.js?v=db4a5c5200a1";
 
 const WORLD = "latent_sea";
 
@@ -314,7 +314,7 @@ export class LatentSea extends ChimeApp {
     ], "Credits");
   }
 
-  probe() { return import("./probe.js?v=f2995feed329").then((made) => new made.Probe(this)); }
+  probe() { return import("./probe.js?v=db4a5c5200a1").then((made) => new made.Probe(this)); }
 
   /** The app mounted: Google's button drawn whenever the door shows; the world started whenever someone is in. */
   mount(element) {

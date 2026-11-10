@@ -5,7 +5,7 @@
 // a game and a site. The platform is Supabase; this speaks its sign-in
 // (GoTrue), data (PostgREST) and live (Realtime, Phoenix channels) protocols.
 //
-//     import { Backend } from "./backend/backend.js?v=f2995feed329";
+//     import { Backend } from "./backend/backend.js?v=db4a5c5200a1";
 //
 //     const backend = new Backend(URL, PUBLISHABLE_KEY);
 //     await backend.restore();                       // whoever signed in last time, if anyone
@@ -159,9 +159,14 @@ export class Backend extends Speaker {
     return this._startSession(await this._auth("POST", "/signup", withCaptcha({}, captchaToken)));
   }
 
-  /** Step 1 of signing in by email: a code (ten digits) is emailed to this address. */
-  async requestCode(email, captchaToken = "") {
-    return this._auth("POST", "/otp", withCaptcha({ email, create_user: true }, captchaToken));
+  /**
+   * Step 1 of signing in by email: a code (ten digits) is emailed to this address.
+   * `page`, the address of the page asking, lets the email carry its site's name,
+   * where the platform names it (platform.sign_in_names).
+   */
+  async requestCode(email, captchaToken = "", page = "") {
+    const at = page ? `/otp?redirect_to=${encodeURIComponent(page)}` : "/otp";
+    return this._auth("POST", at, withCaptcha({ email, create_user: true }, captchaToken));
   }
 
   /** Step 2: the code from the email signs the player in. */
